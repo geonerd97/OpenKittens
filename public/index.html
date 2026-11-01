@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#16161f" />
+<title>OpenKittens</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐱</text></svg>" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ------------------------------------------------------------ Startseite -->
+<section id="screen-home" class="screen active">
+  <div class="home-card">
+    <h1 class="logo">🐱 <span>Open</span>Kittens</h1>
+    <p class="tagline">Zieh keine Bombe. Oder entschärfe sie.<br />Lokal im eigenen Netz – ganz ohne Konto.</p>
+
+    <label class="field">
+      <span>Dein Name</span>
+      <input id="input-name" type="text" maxlength="16" placeholder="z. B. Mia" autocomplete="nickname" />
+    </label>
+
+    <button id="btn-create" class="btn primary big">Neuen Raum erstellen</button>
+
+    <div class="divider"><span>oder</span></div>
+
+    <label class="field">
+      <span>Raumcode</span>
+      <input id="input-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="1234" class="code-input" />
+    </label>
+    <button id="btn-join" class="btn big">Raum beitreten</button>
+
+    <p id="home-error" class="error"></p>
+    <p class="hint">Tipp: Alle Geräte müssen im selben Netzwerk sein und die Adresse dieses Servers aufrufen.</p>
+  </div>
+</section>
+
+<!-- ----------------------------------------------------------------- Lobby -->
+<section id="screen-lobby" class="screen">
+  <div class="lobby-card">
+    <p class="lobby-label">Raumcode</p>
+    <div class="room-code" id="lobby-code">----</div>
+    <p class="lobby-sub">Diesen Code den Mitspielern geben – sie öffnen dieselbe Adresse und tippen ihn ein.</p>
+
+    <h2 class="section-title">Spieler <span id="lobby-count" class="pill">0</span></h2>
+    <ul id="lobby-players" class="player-list"></ul>
+
+    <div class="lobby-actions">
+      <button id="btn-start" class="btn primary big">Spiel starten</button>
+      <button id="btn-leave-lobby" class="btn ghost">Raum verlassen</button>
+    </div>
+    <p id="lobby-hint" class="hint"></p>
+
+    <details class="rules">
+      <summary>Spielregeln in Kurzform</summary>
+      <ol>
+        <li>Du bist am Zug: beliebig viele Karten spielen, danach <b>eine Karte ziehen</b>. Dann ist der Nächste dran.</li>
+        <li>Ziehst du ein <b>Explodierendes Kätzchen</b> 💥, brauchst du eine <b>Entschärfung</b> 🧯 – sonst bist du raus.</li>
+        <li>Nach dem Entschärfen steckst du die Bombe heimlich an eine beliebige Stelle im Stapel zurück.</li>
+        <li><b>Nope</b> 🚫 hebt die zuletzt gespielte Aktion auf – auch wenn du nicht am Zug bist. Ein zweites Nope hebt das Nope auf.</li>
+        <li><b>Zwei gleiche Katzen</b> klauen einem Mitspieler eine zufällige Karte.</li>
+        <li>Wer als Letzter übrig bleibt, gewinnt.</li>
+      </ol>
+    </details>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------------ Spiel -->
+<section id="screen-game" class="screen">
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="chip">Raum <b id="game-code">----</b></span>
+      <span class="chip" id="chip-turn">–</span>
+    </div>
+    <div class="topbar-right">
+      <button id="btn-rules" class="btn tiny ghost">Regeln</button>
+      <button id="btn-leave-game" class="btn tiny ghost">Verlassen</button>
+    </div>
+  </header>
+
+  <div id="players-strip" class="players-strip"></div>
+
+  <main class="board">
+    <div class="piles">
+      <button id="deck-pile" class="pile deck" title="Karte ziehen">
+        <span class="pile-emoji">🂠</span>
+        <span class="pile-label">Stapel</span>
+        <span class="pile-count" id="deck-count">0</span>
+      </button>
+      <div class="pile discard" id="discard-pile">
+        <span class="pile-emoji" id="discard-emoji">·</span>
+        <span class="pile-label" id="discard-label">Ablage</span>
+        <span class="pile-count" id="discard-count">0</span>
+      </div>
+    </div>
+    <p id="turn-banner" class="turn-banner"></p>
+    <button id="btn-draw" class="btn primary big draw-btn">Karte ziehen &amp; Zug beenden</button>
+  </main>
+
+  <aside class="log-wrap">
+    <h3>Verlauf</h3>
+    <ul id="log" class="log"></ul>
+  </aside>
+
+  <footer class="hand-wrap">
+    <div class="hand-head">
+      <span id="hand-title">Deine Karten</span>
+      <div class="hand-buttons">
+        <button id="btn-play" class="btn primary" disabled>Spielen</button>
+        <button id="btn-clear" class="btn ghost" disabled>Auswahl löschen</button>
+      </div>
+    </div>
+    <div id="hand" class="hand"></div>
+  </footer>
+</section>
+
+<!-- --------------------------------------------------------------- Overlays -->
+<div id="nope-bar" class="nope-bar hidden">
+  <div class="nope-info">
+    <span id="nope-text">…</span>
+    <div class="nope-progress"><div id="nope-progress-fill"></div></div>
+  </div>
+  <div class="nope-actions">
+    <button id="btn-nope" class="btn danger">🚫 Nope!</button>
+    <button id="btn-pass" class="btn ghost">Durchlassen</button>
+  </div>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <h2 id="modal-title">Titel</h2>
+    <p id="modal-text" class="modal-text"></p>
+    <div id="modal-body" class="modal-body"></div>
+    <div id="modal-foot" class="modal-foot"></div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
