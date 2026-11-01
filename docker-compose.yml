@@ -14,10 +14,18 @@ services:
       PORT: "3333"
       # Leere Räume werden nach dieser Zeit (Minuten) aufgeräumt
       ROOM_TTL_MINUTES: "180"
+      # Laufende Runden überleben einen Neustart; "0" schaltet das Sichern ab
+      PERSIST: "1"
+      DATA_DIR: "/app/data"
       TZ: "Europe/Berlin"
+    volumes:
+      - openkittens-data:/app/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3333/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  openkittens-data:

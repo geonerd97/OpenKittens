@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const { io } = require('socket.io-client');
 
 process.env.PORT = process.env.E2E_PORT || '4123';
+process.env.PERSIST = '0';
 const { server } = require('../server/index');
 const BASE = `http://127.0.0.1:${process.env.PORT}`;
 

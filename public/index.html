@@ -4,21 +4,27 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#16161f" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>OpenKittens</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐱</text></svg>" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
+<div id="fx-layer" class="fx-layer" aria-hidden="true"></div>
+<p id="live" class="sr-only" aria-live="polite" role="status"></p>
+
 <!-- ------------------------------------------------------------ Startseite -->
 <section id="screen-home" class="screen active">
-  <div class="home-card">
+  <div class="sheet home-card">
     <h1 class="logo">🐱 <span>Open</span>Kittens</h1>
     <p class="tagline">Zieh keine Bombe. Oder entschärfe sie.<br />Lokal im eigenen Netz – ganz ohne Konto.</p>
 
     <label class="field">
       <span>Dein Name</span>
-      <input id="input-name" type="text" maxlength="16" placeholder="z. B. Mia" autocomplete="nickname" />
+      <input id="input-name" type="text" maxlength="16" placeholder="z. B. Mia" autocomplete="nickname" enterkeyhint="go" />
     </label>
 
     <button id="btn-create" class="btn primary big">Neuen Raum erstellen</button>
@@ -27,24 +33,39 @@
 
     <label class="field">
       <span>Raumcode</span>
-      <input id="input-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="1234" class="code-input" />
+      <input id="input-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4"
+             placeholder="1234" class="code-input" autocomplete="off" enterkeyhint="go" />
     </label>
     <button id="btn-join" class="btn big">Raum beitreten</button>
 
-    <p id="home-error" class="error"></p>
-    <p class="hint">Tipp: Alle Geräte müssen im selben Netzwerk sein und die Adresse dieses Servers aufrufen.</p>
+    <p id="home-error" class="error" role="alert"></p>
+    <p class="hint">Alle Geräte müssen im selben Netzwerk sein und dieselbe Adresse aufrufen.</p>
   </div>
 </section>
 
 <!-- ----------------------------------------------------------------- Lobby -->
 <section id="screen-lobby" class="screen">
-  <div class="lobby-card">
+  <div class="sheet lobby-card">
     <p class="lobby-label">Raumcode</p>
     <div class="room-code" id="lobby-code">----</div>
-    <p class="lobby-sub">Diesen Code den Mitspielern geben – sie öffnen dieselbe Adresse und tippen ihn ein.</p>
+
+    <div class="join-box">
+      <div class="qr-wrap"><div id="qr" class="qr" role="img" aria-label="QR-Code zum Beitreten"></div></div>
+      <div class="join-info">
+        <p class="join-url" id="join-url">–</p>
+        <div class="join-buttons">
+          <button id="btn-copy-link" class="btn tiny">🔗 Link kopieren</button>
+          <button id="btn-copy-code" class="btn tiny">123 Code kopieren</button>
+        </div>
+        <p class="hint small">QR scannen oder Adresse + Code eintippen.</p>
+      </div>
+    </div>
 
     <h2 class="section-title">Spieler <span id="lobby-count" class="pill">0</span></h2>
     <ul id="lobby-players" class="player-list"></ul>
+
+    <h2 class="section-title">Hausregeln</h2>
+    <div id="settings" class="settings"></div>
 
     <div class="lobby-actions">
       <button id="btn-start" class="btn primary big">Spiel starten</button>
@@ -54,12 +75,12 @@
 
     <details class="rules">
       <summary>Spielregeln in Kurzform</summary>
-      <ol>
+      <ol id="rules-list">
         <li>Du bist am Zug: beliebig viele Karten spielen, danach <b>eine Karte ziehen</b>. Dann ist der Nächste dran.</li>
         <li>Ziehst du ein <b>Explodierendes Kätzchen</b> 💥, brauchst du eine <b>Entschärfung</b> 🧯 – sonst bist du raus.</li>
         <li>Nach dem Entschärfen steckst du die Bombe heimlich an eine beliebige Stelle im Stapel zurück.</li>
-        <li><b>Nope</b> 🚫 hebt die zuletzt gespielte Aktion auf – auch wenn du nicht am Zug bist. Ein zweites Nope hebt das Nope auf.</li>
-        <li><b>Zwei gleiche Katzen</b> klauen einem Mitspieler eine zufällige Karte.</li>
+        <li><b>Nope</b> 🚫 hebt die zuletzt gespielte Aktion auf – auch außerhalb deines Zuges und auch auf eigene Karten. Ein zweites Nope hebt das Nope auf.</li>
+        <li><b>Zwei gleiche Katzen</b>: zufällige Karte klauen. <b>Drei gleiche</b>: Karte ansagen und gezielt nehmen. <b>Fünf verschiedene</b>: Karte aus dem Ablagestapel aussuchen.</li>
         <li>Wer als Letzter übrig bleibt, gewinnt.</li>
       </ol>
     </details>
@@ -69,54 +90,55 @@
 <!-- ------------------------------------------------------------------ Spiel -->
 <section id="screen-game" class="screen">
   <header class="topbar">
-    <div class="topbar-left">
-      <span class="chip">Raum <b id="game-code">----</b></span>
-      <span class="chip" id="chip-turn">–</span>
-    </div>
-    <div class="topbar-right">
-      <button id="btn-rules" class="btn tiny ghost">Regeln</button>
-      <button id="btn-leave-game" class="btn tiny ghost">Verlassen</button>
+    <span class="chip code-chip">#<b id="game-code">----</b></span>
+    <span class="chip grow" id="chip-turn">–</span>
+    <div class="topbar-actions">
+      <button id="btn-sound" class="icon-btn" title="Ton an/aus" aria-label="Ton an oder aus">🔊</button>
+      <button id="btn-log" class="icon-btn" title="Verlauf" aria-label="Verlauf anzeigen">📜</button>
+      <button id="btn-rules" class="icon-btn" title="Regeln" aria-label="Regeln anzeigen">❔</button>
+      <button id="btn-leave-game" class="icon-btn" title="Verlassen" aria-label="Raum verlassen">🚪</button>
     </div>
   </header>
 
-  <div id="players-strip" class="players-strip"></div>
+  <ul id="players-strip" class="players-strip" aria-label="Mitspieler"></ul>
 
   <main class="board">
     <div class="piles">
-      <button id="deck-pile" class="pile deck" title="Karte ziehen">
-        <span class="pile-emoji">🂠</span>
+      <button id="deck-pile" class="pile deck" aria-label="Karte vom Stapel ziehen">
+        <span class="pile-emoji" aria-hidden="true">🎴</span>
         <span class="pile-label">Stapel</span>
         <span class="pile-count" id="deck-count">0</span>
       </button>
-      <div class="pile discard" id="discard-pile">
-        <span class="pile-emoji" id="discard-emoji">·</span>
+      <button id="discard-pile" class="pile discard" aria-label="Ablagestapel ansehen">
+        <span class="pile-emoji" id="discard-emoji" aria-hidden="true">·</span>
         <span class="pile-label" id="discard-label">Ablage</span>
         <span class="pile-count" id="discard-count">0</span>
-      </div>
+      </button>
     </div>
     <p id="turn-banner" class="turn-banner"></p>
-    <button id="btn-draw" class="btn primary big draw-btn">Karte ziehen &amp; Zug beenden</button>
+    <div id="turn-clock" class="turn-clock hidden"><div id="turn-clock-fill"></div></div>
   </main>
 
-  <aside class="log-wrap">
-    <h3>Verlauf</h3>
+  <aside id="log-panel" class="log-wrap" aria-label="Verlauf">
+    <div class="log-head">
+      <h3>Verlauf</h3>
+      <button id="btn-log-close" class="icon-btn" aria-label="Verlauf schließen">✕</button>
+    </div>
     <ul id="log" class="log"></ul>
   </aside>
 
   <footer class="hand-wrap">
-    <div class="hand-head">
-      <span id="hand-title">Deine Karten</span>
-      <div class="hand-buttons">
-        <button id="btn-play" class="btn primary" disabled>Spielen</button>
-        <button id="btn-clear" class="btn ghost" disabled>Auswahl löschen</button>
-      </div>
+    <p id="hand-title" class="hand-title">Deine Karten</p>
+    <div id="hand" class="hand" role="group" aria-label="Deine Handkarten"></div>
+    <div class="action-bar">
+      <button id="btn-play" class="btn primary" disabled>Spielen</button>
+      <button id="btn-draw" class="btn draw" disabled>Ziehen &amp; beenden</button>
     </div>
-    <div id="hand" class="hand"></div>
   </footer>
 </section>
 
 <!-- --------------------------------------------------------------- Overlays -->
-<div id="nope-bar" class="nope-bar hidden">
+<div id="nope-bar" class="nope-bar hidden" role="region" aria-label="Nope-Fenster">
   <div class="nope-info">
     <span id="nope-text">…</span>
     <div class="nope-progress"><div id="nope-progress-fill"></div></div>
@@ -127,8 +149,8 @@
   </div>
 </div>
 
-<div id="modal" class="modal hidden">
-  <div class="modal-box">
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="sheet modal-box">
     <h2 id="modal-title">Titel</h2>
     <p id="modal-text" class="modal-text"></p>
     <div id="modal-body" class="modal-body"></div>
@@ -136,8 +158,9 @@
   </div>
 </div>
 
-<div id="toasts" class="toasts"></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 
+<script src="vendor/qrcode.js"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script src="app.js"></script>
 </body>

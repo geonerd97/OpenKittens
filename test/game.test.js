@@ -8,16 +8,25 @@ const assert = require('node:assert/strict');
 const { Game } = require('../server/game');
 
 let passed = 0;
+const tests = [];
 function test(name, fn) {
-  try {
-    fn();
-    passed++;
-    console.log(`  ✓ ${name}`);
-  } catch (err) {
-    console.error(`  ✗ ${name}\n    ${err.message}`);
-    process.exitCode = 1;
+  tests.push([name, fn]);
+}
+
+async function runAll() {
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ✓ ${name}`);
+    } catch (err) {
+      console.error(`  ✗ ${name}\n    ${err.message}`);
+      process.exitCode = 1;
+    }
   }
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const hooks = () => ({ broadcast: () => {}, toPlayer: () => {} });
 
@@ -284,4 +293,196 @@ test('Zufallsspiel mit 5 Spielern endet mit genau einem Gewinner', () => {
   }
 });
 
-console.log(`\n${passed} Tests erfolgreich${process.exitCode ? ' – mit Fehlern' : ''}.`);
+
+
+/* ------------------------------------------------------- Erweiterte Regeln */
+
+test('Drei gleiche Katzen fordern gezielt eine Karte an', () => {
+  const game = startedGame(['A', 'B']);
+  const cur = game.currentPlayer;
+  const other = game.players.find((p) => p.id !== cur.id);
+  other.hand = [{ uid: 'wunsch', id: 'attack' }, { uid: 'rest', id: 'shuffle' }];
+  const uids = ['cat_beard', 'cat_beard', 'cat_beard'].map((id) => giveCard(game, cur, id));
+  game.playCards(cur.id, uids, { targetId: other.id, demandCardId: 'attack' });
+  resolve(game);
+  assert.equal(cur.hand.some((c) => c.uid === 'wunsch'), true, 'geforderte Karte erhalten');
+  assert.equal(other.hand.length, 1);
+
+  const futureBefore = cur.hand.filter((c) => c.id === 'future').length;
+  const otherBefore = other.hand.length;
+  const uids2 = ['cat_melon', 'cat_melon', 'cat_melon'].map((id) => giveCard(game, cur, id));
+  game.playCards(cur.id, uids2, { targetId: other.id, demandCardId: 'future' });
+  resolve(game);
+  assert.equal(cur.hand.filter((c) => c.id === 'future').length, futureBefore, 'nicht vorhandene Karte bringt nichts ein');
+  assert.equal(other.hand.length, otherBefore, 'beim Ziel ändert sich nichts');
+  game.dispose();
+});
+
+test('Drei Katzen ohne Ansage sind ungültig', () => {
+  const game = startedGame(['A', 'B']);
+  const cur = game.currentPlayer;
+  const other = game.players.find((p) => p.id !== cur.id);
+  const uids = ['cat_potato', 'cat_potato', 'cat_potato'].map((id) => giveCard(game, cur, id));
+  assert.throws(() => game.playCards(cur.id, uids, { targetId: other.id }), /Sag an/);
+  game.dispose();
+});
+
+test('Fünf verschiedene Katzen holen eine Karte aus dem Ablagestapel', () => {
+  const game = startedGame(['A', 'B']);
+  const cur = game.currentPlayer;
+  game.discard.push('attack', 'shuffle');
+  const uids = ['cat_pizza', 'cat_melon', 'cat_beard', 'cat_rainbow', 'cat_potato']
+    .map((id) => giveCard(game, cur, id));
+  assert.throws(() => game.playCards(cur.id, uids, { discardCardId: 'future' }), /Ablagestapel/);
+  game.playCards(cur.id, uids, { discardCardId: 'attack' });
+  resolve(game);
+  assert.equal(cur.hand.some((c) => c.id === 'attack'), true, 'Karte aus der Ablage geholt');
+  assert.equal(game.discard.filter((id) => id === 'attack').length, 0);
+  game.dispose();
+});
+
+test('Nope auf die eigene Aktion ist erlaubt', () => {
+  const game = startedGame(['A', 'B']);
+  const cur = game.currentPlayer;
+  cur.hand = cur.hand.filter((c) => c.id !== 'nope');
+  const skip = giveCard(game, cur, 'skip');
+  giveCard(game, cur, 'nope');
+  game.playCards(cur.id, [skip]);
+  assert.equal(game.viewFor(cur.id).pending.youCanNope, true, 'eigene Aktion darf genopt werden');
+  game.playNope(cur.id);
+  resolve(game);
+  assert.equal(game.currentPlayer.id, cur.id, 'Überspringen wurde aufgehoben');
+  game.dispose();
+});
+
+test('Host entfernt offline Spieler, verbundene bleiben geschützt', () => {
+  const game = startedGame(['A', 'B', 'C']);
+  const host = game.findById(game.hostId);
+  const victim = game.players.find((p) => p.id !== host.id);
+  assert.throws(() => game.kickPlayer(host.id, victim.id), /offline/);
+  game.detach(victim.socketId);
+  game.kickPlayer(host.id, victim.id);
+  assert.equal(victim.alive, false);
+  assert.equal(victim.removed, true);
+  assert.equal(victim.hand.length, 0, 'Hand landet auf der Ablage');
+  assert.throws(() => game.kickPlayer(victim.id, host.id), /Host/);
+  game.dispose();
+});
+
+test('Kick des letzten Gegners beendet die Runde', () => {
+  const game = startedGame(['A', 'B']);
+  const host = game.findById(game.hostId);
+  const other = game.players.find((p) => p.id !== host.id);
+  game.detach(other.socketId);
+  game.kickPlayer(host.id, other.id);
+  assert.equal(game.phase, 'finished');
+  assert.equal(game.winnerId, host.id);
+  game.dispose();
+});
+
+test('Hausregeln wirken auf Startkarten und Bombenzahl', () => {
+  const game = makeGame(['A', 'B', 'C']);
+  game.updateSettings(game.hostId, { startCards: 5, extraBombs: 2, nopeSeconds: 3, turnSeconds: 60 });
+  assert.deepEqual(game.settings, { nopeSeconds: 3, turnSeconds: 60, startCards: 5, extraBombs: 2 });
+  assert.throws(() => game.updateSettings(game.hostId, { startCards: 99 }), /Ungültig/);
+  const notHost = game.players.find((p) => p.id !== game.hostId);
+  assert.throws(() => game.updateSettings(notHost.id, { startCards: 6 }), /Host/);
+  game.start(game.hostId);
+  game.players.forEach((p) => assert.equal(p.hand.length, 6, '5 Karten + Entschärfung'));
+  assert.equal(game.deck.filter((c) => c.id === 'bomb').length, 4, '3 Spieler − 1 + 2 Zusatzbomben');
+  assert.throws(() => game.updateSettings(game.hostId, { startCards: 7 }), /Runde/);
+  game.dispose();
+});
+
+test('Nope-Fenster von 0 Sekunden führt Aktionen sofort aus', async () => {
+  const game = makeGame(['A', 'B']);
+  game.updateSettings(game.hostId, { nopeSeconds: 0 });
+  game.start(game.hostId);
+  const cur = game.currentPlayer;
+  const other = game.players.find((p) => p.id !== cur.id);
+  giveCard(game, other, 'nope');
+  const uid = giveCard(game, cur, 'shuffle');
+  game.playCards(cur.id, [uid]);
+  await sleep(40);
+  assert.equal(game.pending, null, 'Aktion ist ohne Wartezeit aufgelöst');
+  game.dispose();
+});
+
+test('Zug-Timer zieht nach Ablauf automatisch', async () => {
+  const game = startedGame(['A', 'B', 'C']);
+  game.settings.turnSeconds = 60;
+  game._refreshTurnClock();
+  assert.ok(game.turnDeadline > Date.now() + 50000, 'Zug-Uhr läuft');
+  const cur = game.currentPlayer;
+  game.deck.push({ uid: 'safe', id: 'skip' });
+  const handBefore = cur.hand.length;
+  game.turnDeadline = Date.now() + 60;
+  game._scheduleAuto();
+  await sleep(220);
+  assert.equal(cur.hand.length, handBefore + 1, 'es wurde automatisch gezogen');
+  assert.notEqual(game.currentPlayer.id, cur.id, 'Zug ist weitergegeben');
+  game.dispose();
+});
+
+test('Zug-Uhr pausiert, solange eine Aktion offen ist', () => {
+  const game = startedGame(['A', 'B']);
+  game.settings.turnSeconds = 60;
+  game._refreshTurnClock();
+  const cur = game.currentPlayer;
+  const other = game.players.find((p) => p.id !== cur.id);
+  other.hand = other.hand.filter((c) => c.id !== 'nope');
+  giveCard(game, other, 'nope');
+  const uid = giveCard(game, cur, 'shuffle');
+  game.playCards(cur.id, [uid]);
+  assert.equal(game.turnDeadline, null, 'während des Nope-Fensters keine Zug-Uhr');
+  resolve(game);
+  assert.ok(game.turnDeadline > Date.now() + 50000, 'danach läuft sie neu');
+  game.dispose();
+});
+
+test('Momentaufnahme stellt eine laufende Runde wieder her', () => {
+  const game = startedGame(['A', 'B', 'C']);
+  const cur = game.currentPlayer;
+  const uid = giveCard(game, cur, 'future');
+  game.playCards(cur.id, [uid]);
+  resolve(game);
+  const snapshot = JSON.parse(JSON.stringify(game.toJSON()));
+  const handSizes = game.players.map((p) => p.hand.length);
+  const deckSize = game.deck.length;
+  game.dispose();
+
+  const restored = Game.fromJSON(snapshot, { broadcast: () => {}, toPlayer: () => {} });
+  assert.equal(restored.phase, 'playing');
+  assert.equal(restored.code, '1234');
+  assert.deepEqual(restored.players.map((p) => p.hand.length), handSizes);
+  assert.equal(restored.deck.length, deckSize);
+  assert.equal(restored.players.every((p) => !p.connected), true, 'nach Neustart erst einmal alle offline');
+  assert.equal(restored.currentPlayer.id, cur.id, 'der Spieler am Zug bleibt am Zug');
+  assert.equal(restored.findByToken(cur.token).id, cur.id, 'Reconnect-Token überlebt');
+  restored.dispose();
+});
+
+test('Eine gerade entschärfte Bombe geht beim Sichern nicht verloren', () => {
+  const game = startedGame(['A', 'B']);
+  const cur = game.currentPlayer;
+  game.deck.push({ uid: 'boom', id: 'bomb' });
+  const bombsBefore = game.deck.filter((c) => c.id === 'bomb').length;
+  game.draw(cur.id);
+  assert.equal(game.prompt.type, 'defuse');
+  const snapshot = game.toJSON();
+  assert.equal(snapshot.deck.filter((c) => c.id === 'bomb').length, bombsBefore, 'Bombe liegt wieder im Stapel');
+  game.dispose();
+});
+
+test('Spieler bekommen unterschiedliche Farben und Symbole', () => {
+  const game = startedGame(['A', 'B', 'C', 'D']);
+  const view = game.viewFor(game.players[0].id);
+  const colors = new Set(view.players.map((p) => p.color));
+  assert.equal(colors.size, 4, 'vier verschiedene Farben');
+  assert.equal(view.players.every((p) => Boolean(p.emoji)), true);
+  game.dispose();
+});
+
+runAll().then(() => {
+  console.log(`\n${passed} von ${tests.length} Tests erfolgreich${process.exitCode ? ' – mit Fehlern' : ''}.`);
+});

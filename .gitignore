@@ -2,3 +2,7 @@ node_modules/
 npm-debug.log*
 .env
 .DS_Store
+
+# Laufzeitdaten und Testartefakte
+data/
+screenshots/

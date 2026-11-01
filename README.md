@@ -2,8 +2,8 @@
 
 Ein Kartenspiel im Stil von *Exploding Kittens* zum Selbsthosten – gedacht für einen
 Abend im eigenen WLAN: ein Rechner startet den Server, alle anderen öffnen die Adresse
-im Browser und tippen einen **vierstelligen Raumcode** plus ihren Namen ein.
-**Kein Konto, keine Registrierung, keine Datenbank, keine Cloud.**
+im Browser (oder scannen den QR-Code) und tippen einen **vierstelligen Raumcode** plus
+ihren Namen ein. **Kein Konto, keine Registrierung, keine Cloud.**
 
 ```
 ┌─────────────┐   WLAN/LAN    ┌──────────────────────┐
@@ -13,6 +13,9 @@ im Browser und tippen einen **vierstelligen Raumcode** plus ihren Namen ein.
                               └──────────────────────┘
 ```
 
+Die Oberfläche ist für Handys gebaut (große Tippflächen, Hochkant und Quer, Verlauf als
+Schublade) und wächst auf größeren Bildschirmen zum Zwei-Spalten-Layout.
+
 ---
 
 ## Schnellstart
@@ -20,8 +23,8 @@ im Browser und tippen einen **vierstelligen Raumcode** plus ihren Namen ein.
 Voraussetzung: Docker mit Compose-Plugin (Docker Desktop oder `docker-compose-plugin`).
 
 ```bash
-git clone <dieses-repo> openkittens
-cd openkittens
+git clone https://github.com/geonerd97/OpenKittens.git
+cd OpenKittens
 docker compose up -d --build
 ```
 
@@ -39,9 +42,10 @@ Die Mitspieler brauchen die **IP-Adresse des Rechners**, auf dem der Container l
 
 Beispiel: `http://192.168.178.42:3333` im Browser des Handys öffnen.
 
-1. Eine Person klickt **„Neuen Raum erstellen"** und bekommt einen vierstelligen Code (z. B. `4821`).
-2. Alle anderen geben Namen + Code ein und klicken **„Raum beitreten"**.
-3. Der Host startet die Runde, sobald mindestens zwei Leute da sind (max. 8).
+1. Eine Person klickt **„Neuen Raum erstellen"** und bekommt einen vierstelligen Code.
+2. In der Lobby steht ein **QR-Code** mit genau diesem Beitritts-Link – einmal scannen,
+   fertig. Alternativ: Adresse aufrufen, Name und Code eintippen.
+3. Der Host stellt bei Bedarf die Hausregeln ein und startet ab zwei Spielern (max. 8).
 
 > Firewall: Unter Windows/macOS muss Port 3333 eingehend erlaubt sein, sonst sehen die
 > anderen Geräte den Server nicht.
@@ -49,9 +53,10 @@ Beispiel: `http://192.168.178.42:3333` im Browser des Handys öffnen.
 ### Stoppen, Logs, Update
 
 ```bash
-docker compose logs -f      # Logs ansehen
-docker compose restart      # Neustart (alle laufenden Runden gehen verloren)
-docker compose down         # Stoppen und Container entfernen
+docker compose logs -f         # Logs ansehen
+docker compose restart         # Neustart (laufende Runden werden wiederhergestellt)
+docker compose down            # Stoppen und Container entfernen
+docker compose down -v         # zusätzlich gespeicherte Spielstände löschen
 docker compose up -d --build   # nach Code-Änderungen neu bauen
 ```
 
@@ -75,22 +80,41 @@ Karte ziehen** – damit endet dein Zug.
 
 | Karte | | Wirkung |
 | --- | --- | --- |
-| Explodierendes Kätzchen | 💥 | Wer es zieht und keine Entschärfung hat, scheidet aus. Im Spiel sind immer *Spielerzahl − 1* Bomben. |
+| Explodierendes Kätzchen | 💥 | Wer es zieht und keine Entschärfung hat, scheidet aus. Standard: *Spielerzahl − 1* Bomben. |
 | Entschärfung | 🧯 | Wird automatisch eingesetzt, wenn du eine Bombe ziehst. Danach steckst du die Bombe heimlich an eine beliebige Stelle im Stapel zurück. |
 | Überspringen | 🏃 | Zug beenden, ohne zu ziehen. |
 | Angriff | ⚔️ | Dein Zug endet sofort, der Nächste muss **zwei** Züge machen (stapelt sich). |
 | Mischen | 🔀 | Nachziehstapel neu mischen. |
 | Blick in die Zukunft | 🔮 | Du siehst heimlich die obersten drei Karten. |
 | Gefallen | 🙏 | Ein Mitspieler deiner Wahl gibt dir eine Karte – er sucht sie aus. |
-| Nope | 🚫 | Hebt die zuletzt gespielte Aktion auf, auch außerhalb deines Zuges. Ein zweites Nope hebt das Nope wieder auf. |
-| Katzenkarten | 🍕🍉🧔🌈🥔 | Allein wirkungslos. **Zwei gleiche** klauen einem Mitspieler eine zufällige Karte. |
+| Nope | 🚫 | Hebt die zuletzt gespielte Aktion auf, auch außerhalb deines Zuges und auch auf eigene Karten. Ein zweites Nope hebt das Nope wieder auf. |
+| Katzenkarten | 🍕🍉🧔🌈🥔 | Allein wirkungslos, aber in Kombination stark (siehe unten). |
 
-**Nope-Fenster:** Nach jeder Aktionskarte läuft unten ein Balken mit ca. 6 Sekunden.
-Wer eine Nope-Karte hat, kann in dieser Zeit „Nope!" oder „Durchlassen" klicken.
-Haben alle durchgelassen (oder hat niemand ein Nope), wird die Aktion sofort ausgeführt.
+**Katzen-Kombinationen**
 
-**Start:** Jeder bekommt 7 zufällige Karten + 1 Entschärfung, dann kommen die restlichen
-Entschärfungen und die Bomben in den Stapel.
+| Auswahl | Wirkung |
+| --- | --- |
+| zwei gleiche | zufällige Karte eines Mitspielers klauen |
+| drei gleiche | Karte **ansagen** – hat der Mitspieler sie, muss er sie herausgeben |
+| fünf verschiedene | beliebige Karte aus dem **Ablagestapel** nehmen |
+
+**Nope-Fenster:** Nach jeder Aktionskarte läuft unten ein Balken (einstellbar, Standard
+6 Sekunden). Wer eine Nope-Karte hat, kann in dieser Zeit „Nope!" oder „Durchlassen"
+klicken. Haben alle durchgelassen oder hat niemand ein Nope, wird sofort ausgeführt.
+
+**Start:** Jeder bekommt 7 zufällige Karten (einstellbar) plus 1 Entschärfung, dann
+kommen die restlichen Entschärfungen und die Bomben in den Stapel.
+
+---
+
+## Hausregeln (Lobby, nur Host)
+
+| Einstellung | Auswahl | Bedeutung |
+| --- | --- | --- |
+| Nope-Fenster | sofort / 3 / 6 / 10 s | Bedenkzeit für Nope-Karten |
+| Zeit pro Zug | ohne Limit / 30 / 60 / 90 / 120 s | danach zieht der Server automatisch |
+| Startkarten | 5 – 10 | Handkarten zu Beginn, zusätzlich zur Entschärfung |
+| Zusatzbomben | Standard / +1 / +2 / +3 | mehr Bomben als „Spielerzahl − 1" |
 
 ---
 
@@ -99,20 +123,30 @@ Entschärfungen und die Bomben in den Stapel.
 * **Reconnect:** Der Browser merkt sich pro Raum einen Token. Wer die Seite neu lädt oder
   kurz das WLAN verliert, landet mit derselben Hand wieder im Spiel.
 * **Offline-Spieler:** Ist jemand länger weg, zieht der Server nach 20 Sekunden
-  automatisch für ihn, damit die Runde weiterläuft.
+  automatisch für ihn. Der Host kann offline Spieler zusätzlich aus der Runde nehmen
+  (in der Lobby jeden, im laufenden Spiel nur offline Spieler).
 * **Später dazugekommen?** Wer mitten in einer Runde beitritt, schaut zu und ist in der
   nächsten Runde dabei.
-* **Neue Runde:** Nach dem Sieg klickt der Host auf „Neue Runde" – der Raumcode bleibt gleich.
-* **Räume** liegen nur im Arbeitsspeicher und werden nach 3 Stunden ohne Verbindung
-  aufgeräumt (`ROOM_TTL_MINUTES`). Ein Neustart des Containers beendet alle Runden.
+* **Neustart:** Laufende Runden werden alle paar Sekunden gesichert und nach einem
+  Container-Neustart wiederhergestellt (offene Nope-Fenster verfallen dabei).
+* **Ton und Effekte:** Explosion, Nope, Klauen und Sieg haben kurze Soundeffekte –
+  abschaltbar über 🔊 in der Kopfleiste, die Einstellung bleibt im Browser gespeichert.
+* **Bedienung ohne Maus:** Karten lassen sich per Tab und Enter auswählen, Dialoge mit
+  Escape schließen; Zugwechsel und Effekte werden für Screenreader angesagt.
+* **Räume** liegen im Arbeitsspeicher und werden nach 3 Stunden ohne Verbindung
+  aufgeräumt (`ROOM_TTL_MINUTES`).
 
 ### Konfiguration (Umgebungsvariablen)
 
-| Variable            | Standard | Bedeutung                                   |
-| ------------------- | -------- | ------------------------------------------- |
-| `PORT`              | `3333`   | Port im Container                           |
-| `HOST`              | `0.0.0.0`| Listen-Adresse                              |
-| `ROOM_TTL_MINUTES`  | `180`    | Aufräumen leerer Räume nach x Minuten        |
+| Variable              | Standard     | Bedeutung                                        |
+| --------------------- | ------------ | ------------------------------------------------ |
+| `PORT`                | `3333`       | Port im Container                                |
+| `HOST`                | `0.0.0.0`    | Listen-Adresse                                   |
+| `ROOM_TTL_MINUTES`    | `180`        | Aufräumen leerer Räume nach x Minuten             |
+| `PERSIST`             | `1`          | `0` schaltet das Sichern der Spielstände ab       |
+| `DATA_DIR`            | `/app/data`  | Ablage für `rooms.json`                          |
+| `MAX_ROOMS`           | `100`        | Obergrenze gleichzeitiger Räume                  |
+| `MAX_ROOMS_PER_SOCKET`| `5`          | wie viele Räume eine Verbindung anlegen darf     |
 
 Zusätzlich gibt es `GET /health` für Monitoring und den Compose-Healthcheck.
 
@@ -122,20 +156,28 @@ Zusätzlich gibt es `GET /health` für Monitoring und den Compose-Healthcheck.
 
 ```bash
 npm install
-npm start          # http://localhost:3333
-npm run dev        # mit automatischem Neustart (node --watch)
-npm test           # Spiellogik (Deck, Nope, Angriff, Entschärfen, Zufallsspiele)
-npm run test:e2e   # echte Socket.IO-Runde mit drei simulierten Clients
+npm start           # http://localhost:3333
+npm run dev         # mit automatischem Neustart (node --watch)
+
+npm test            # Spiellogik (Deck, Nope, Kombis, Timer, Momentaufnahme)
+npm run test:e2e    # echte Socket.IO-Runde mit drei simulierten Clients
+npm run test:ui     # Browser-Test mit Playwright (Lobby, Dialoge, Handy-Layout)
+npm run test:all    # alles nacheinander
 ```
+
+Für `test:ui` einmalig den Browser holen: `npx playwright install chromium`.
+Mit `UI_SHOTS=1 npm run test:ui` landen Screenshots in `screenshots/`.
 
 ### Aufbau
 
 ```
 server/cards.js   Kartendefinitionen und Deckzusammenstellung
-server/game.js    komplette Spiellogik (Züge, Nope-Fenster, Timer, Sichtbarkeiten)
-server/index.js   Express + Socket.IO, Raumverwaltung, Aufräum-Job
-public/           Oberfläche (reines HTML/CSS/JS, kein Build-Schritt)
-test/             Logik- und Ende-zu-Ende-Tests
+server/game.js    Spiellogik: Züge, Nope-Fenster, Kombis, Timer, Sichtbarkeiten
+server/index.js   Express + Socket.IO, Raumverwaltung, Persistenz, Aufräum-Job
+public/           Oberfläche (HTML/CSS/JS ohne Build-Schritt)
+public/vendor/    qrcode-generator (MIT) für den QR-Code in der Lobby
+test/             Logik-, Netzwerk- und Oberflächentests
+.github/workflows CI: Tests plus Docker-Build mit Smoke-Test
 ```
 
 Der Server ist die einzige Wahrheit: Clients bekommen nur, was sie sehen dürfen –

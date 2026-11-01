@@ -1,0 +1,78 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Logik, Netzwerk und Oberfläche
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Spiellogik
+        run: npm test
+
+      - name: Ende-zu-Ende über Socket.IO
+        run: npm run test:e2e
+
+      - name: Browser für die Oberflächentests
+        run: npx playwright install --with-deps chromium
+
+      - name: Oberfläche
+        run: npm run test:ui
+        env:
+          UI_SHOTS: '1'
+
+      - name: Screenshots sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  docker:
+    name: Docker-Image bauen und starten
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image bauen
+        run: docker compose build
+
+      - name: Container starten
+        run: docker compose up -d
+
+      - name: Auf Bereitschaft warten
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3333/health > /dev/null; then
+              echo "Server ist da."
+              curl -s http://127.0.0.1:3333/health
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server antwortet nicht:"
+          docker compose logs
+          exit 1
+
+      - name: Startseite ausliefern
+        run: curl -fsS http://127.0.0.1:3333/ | grep -q OpenKittens
+
+      - name: Aufräumen
+        if: always()
+        run: docker compose down -v

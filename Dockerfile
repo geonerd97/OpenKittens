@@ -14,6 +14,11 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY server ./server
 COPY public ./public
 
+# Ablage für gesicherte Spielstände (überlebt einen Neustart des Containers)
+RUN mkdir -p /app/data && chown -R node:node /app/data
+VOLUME ["/app/data"]
+ENV DATA_DIR=/app/data
+
 USER node
 EXPOSE 3333
 

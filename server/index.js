@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
@@ -12,13 +13,35 @@ const { CARDS } = require('./cards');
 const PORT = Number(process.env.PORT) || 3333;
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MINUTES || 180) * 60 * 1000;
+const MAX_ROOMS = Number(process.env.MAX_ROOMS || 100);
+const MAX_ROOMS_PER_SOCKET = Number(process.env.MAX_ROOMS_PER_SOCKET || 5);
+const PERSIST = process.env.PERSIST !== '0';
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+const STATE_FILE = path.join(DATA_DIR, 'rooms.json');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+// Kein offenes CORS: Verbindungen kommen vom selben Ursprung wie die Seite.
+const io = new Server(server);
 
 /** @type {Map<string, Game>} */
 const rooms = new Map();
+
+/* ----------------------------------------------------------------- Räume */
+
+function roomHooks(code) {
+  return {
+    broadcast: () => broadcast(code),
+    onChange: () => scheduleSave(),
+    toPlayer: (playerId, event, payload) => {
+      const game = rooms.get(code);
+      if (!game) return;
+      const player = game.findById(playerId);
+      if (player && player.socketId) io.to(player.socketId).emit(event, payload);
+    },
+    fx: (payload) => io.to(code).emit('fx', payload)
+  };
+}
 
 function makeCode() {
   for (let i = 0; i < 500; i++) {
@@ -29,17 +52,11 @@ function makeCode() {
 }
 
 function createRoom() {
+  if (rooms.size >= MAX_ROOMS) throw new GameError('Der Server ist gerade voll. Bitte später erneut versuchen.');
   const code = makeCode();
-  const game = new Game(code, {
-    broadcast: () => broadcast(code),
-    toPlayer: (playerId, event, payload) => {
-      const g = rooms.get(code);
-      if (!g) return;
-      const p = g.findById(playerId);
-      if (p && p.socketId) io.to(p.socketId).emit(event, payload);
-    }
-  });
+  const game = new Game(code, roomHooks(code));
   rooms.set(code, game);
+  scheduleSave();
   return game;
 }
 
@@ -50,6 +67,67 @@ function broadcast(code) {
     if (player.socketId) io.to(player.socketId).emit('state', game.viewFor(player.id));
   }
 }
+
+/* ------------------------------------------------------------- Persistenz */
+
+let saveTimer = null;
+let saving = false;
+
+function scheduleSave() {
+  if (!PERSIST || saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveState();
+  }, 2000);
+  saveTimer.unref();
+}
+
+function saveState() {
+  if (!PERSIST || saving) return;
+  saving = true;
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const payload = {
+      version: 1,
+      savedAt: Date.now(),
+      rooms: [...rooms.values()].filter((g) => g.players.length > 0).map((g) => g.toJSON())
+    };
+    const tmp = `${STATE_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(payload), 'utf8');
+    fs.renameSync(tmp, STATE_FILE);
+  } catch (err) {
+    console.warn('[openkittens] Spielstand konnte nicht gesichert werden:', err.message);
+  } finally {
+    saving = false;
+  }
+}
+
+function loadState() {
+  if (!PERSIST) return;
+  let raw;
+  try {
+    raw = fs.readFileSync(STATE_FILE, 'utf8');
+  } catch {
+    return; // noch nichts gesichert
+  }
+  try {
+    const data = JSON.parse(raw);
+    const age = Date.now() - (data.savedAt || 0);
+    if (age > ROOM_TTL_MS) {
+      console.log('[openkittens] Gesicherter Spielstand ist zu alt und wird verworfen.');
+      return;
+    }
+    for (const entry of data.rooms || []) {
+      if (!entry || !entry.code || rooms.has(entry.code)) continue;
+      rooms.set(entry.code, Game.fromJSON(entry, roomHooks(entry.code)));
+    }
+    if (rooms.size) console.log(`[openkittens] ${rooms.size} Raum/Räume nach Neustart wiederhergestellt.`);
+  } catch (err) {
+    console.warn('[openkittens] Spielstand unlesbar, starte leer:', err.message);
+  }
+}
+
+/* -------------------------------------------------------------- HTTP-Teil */
 
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
@@ -82,6 +160,8 @@ function handler(socket, fn) {
 }
 
 io.on('connection', (socket) => {
+  socket.data.roomsCreated = 0;
+
   const context = () => {
     const game = rooms.get(socket.data.code);
     if (!game) throw new GameError('Raum nicht gefunden – bitte neu beitreten.');
@@ -106,10 +186,17 @@ io.on('connection', (socket) => {
     socket.data.playerId = player.id;
     socket.join(game.code);
     broadcast(game.code);
+    scheduleSave();
     return { code: game.code, token: player.token, playerId: player.id, name: player.name };
   };
 
-  socket.on('createRoom', handler(socket, ({ name, token }) => enter(createRoom(), { name, token })));
+  socket.on('createRoom', handler(socket, ({ name, token }) => {
+    if (socket.data.roomsCreated >= MAX_ROOMS_PER_SOCKET) {
+      throw new GameError('Du hast zu viele Räume erstellt. Lade die Seite neu.');
+    }
+    socket.data.roomsCreated += 1;
+    return enter(createRoom(), { name, token });
+  }));
 
   socket.on('joinRoom', handler(socket, ({ code, name, token }) => {
     const clean = String(code || '').replace(/\D/g, '');
@@ -124,9 +211,20 @@ io.on('connection', (socket) => {
     game.start(player.id);
   }));
 
-  socket.on('playCards', handler(socket, ({ uids, targetId }) => {
+  socket.on('updateSettings', handler(socket, (patch) => {
     const { game, player } = context();
-    game.playCards(player.id, uids, { targetId });
+    game.updateSettings(player.id, patch);
+  }));
+
+  socket.on('kickPlayer', handler(socket, ({ playerId }) => {
+    const { game, player } = context();
+    const removed = game.kickPlayer(player.id, playerId);
+    if (removed && removed.socketId) io.to(removed.socketId).emit('kicked', 'Der Host hat dich aus dem Raum entfernt.');
+  }));
+
+  socket.on('playCards', handler(socket, ({ uids, targetId, demandCardId, discardCardId }) => {
+    const { game, player } = context();
+    game.playCards(player.id, uids, { targetId, demandCardId, discardCardId });
   }));
 
   socket.on('drawCard', handler(socket, () => {
@@ -164,6 +262,7 @@ io.on('connection', (socket) => {
     if (game) {
       game.detach(socket.id);
       broadcast(game.code);
+      scheduleSave();
     }
     socket.data.code = null;
     socket.data.playerId = null;
@@ -172,32 +271,46 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const game = rooms.get(socket.data.code);
     if (!game) return;
-    const player = game.players.find((p) => p.socketId === socket.id);
-    if (!player) return;
+    if (!game.players.some((p) => p.socketId === socket.id)) return;
     game.detach(socket.id);
     broadcast(game.code);
+    scheduleSave();
   });
 });
 
 /* -------------------------------------------------------------- Aufräumen */
 
-setInterval(() => {
+const cleanupTimer = setInterval(() => {
   const now = Date.now();
+  let removed = 0;
   for (const [code, game] of rooms) {
     if (game.connectedCount === 0 && now - game.updatedAt > ROOM_TTL_MS) {
       game.dispose();
       rooms.delete(code);
+      removed++;
       console.log(`[openkittens] Raum ${code} verworfen (inaktiv).`);
     }
   }
-}, 60 * 1000).unref();
+  if (removed) scheduleSave();
+}, 60 * 1000);
+cleanupTimer.unref();
+
+const periodicSave = setInterval(() => saveState(), 60 * 1000);
+periodicSave.unref();
+
+loadState();
 
 server.listen(PORT, HOST, () => {
   console.log(`[openkittens] läuft auf http://${HOST}:${PORT} (${MIN_PLAYERS}-${MAX_PLAYERS} Spieler pro Raum)`);
+  if (PERSIST) console.log(`[openkittens] Spielstände: ${STATE_FILE}`);
 });
 
+let shuttingDown = false;
 function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log('[openkittens] fährt herunter …');
+  saveState();
   for (const game of rooms.values()) game.dispose();
   io.close();
   server.close(() => process.exit(0));
@@ -206,4 +319,4 @@ function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-module.exports = { app, server, rooms };
+module.exports = { app, server, rooms, saveState, loadState };

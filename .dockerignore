@@ -2,6 +2,9 @@ node_modules
 npm-debug.log*
 .git
 .gitignore
+.github
 test
+screenshots
+data
 *.md
 .DS_Store
