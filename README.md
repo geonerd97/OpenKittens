@@ -25,7 +25,7 @@ cd openkittens
 docker compose up -d --build
 ```
 
-Danach läuft das Spiel auf **http://localhost:3000**.
+Danach läuft das Spiel auf **http://localhost:3333**.
 
 ### Mitspieler im lokalen Netz
 
@@ -37,13 +37,13 @@ Die Mitspieler brauchen die **IP-Adresse des Rechners**, auf dem der Container l
 | macOS         | `ipconfig getifaddr en0`                      |
 | Windows       | `ipconfig` (IPv4-Adresse des WLAN-Adapters)   |
 
-Beispiel: `http://192.168.178.42:3000` im Browser des Handys öffnen.
+Beispiel: `http://192.168.178.42:3333` im Browser des Handys öffnen.
 
 1. Eine Person klickt **„Neuen Raum erstellen"** und bekommt einen vierstelligen Code (z. B. `4821`).
 2. Alle anderen geben Namen + Code ein und klicken **„Raum beitreten"**.
 3. Der Host startet die Runde, sobald mindestens zwei Leute da sind (max. 8).
 
-> Firewall: Unter Windows/macOS muss Port 3000 eingehend erlaubt sein, sonst sehen die
+> Firewall: Unter Windows/macOS muss Port 3333 eingehend erlaubt sein, sonst sehen die
 > anderen Geräte den Server nicht.
 
 ### Stoppen, Logs, Update
@@ -57,11 +57,11 @@ docker compose up -d --build   # nach Code-Änderungen neu bauen
 
 ### Anderer Port
 
-Wenn 3000 schon belegt ist, in `docker-compose.yml` nur die linke Seite ändern:
+Wenn 3333 schon belegt ist, in `docker-compose.yml` nur die linke Seite ändern:
 
 ```yaml
 ports:
-  - "8080:3000"      # erreichbar unter http://<ip>:8080
+  - "8080:3333"      # erreichbar unter http://<ip>:8080
 ```
 
 ---
@@ -110,7 +110,7 @@ Entschärfungen und die Bomben in den Stapel.
 
 | Variable            | Standard | Bedeutung                                   |
 | ------------------- | -------- | ------------------------------------------- |
-| `PORT`              | `3000`   | Port im Container                           |
+| `PORT`              | `3333`   | Port im Container                           |
 | `HOST`              | `0.0.0.0`| Listen-Adresse                              |
 | `ROOM_TTL_MINUTES`  | `180`    | Aufräumen leerer Räume nach x Minuten        |
 
@@ -122,7 +122,7 @@ Zusätzlich gibt es `GET /health` für Monitoring und den Compose-Healthcheck.
 
 ```bash
 npm install
-npm start          # http://localhost:3000
+npm start          # http://localhost:3333
 npm run dev        # mit automatischem Neustart (node --watch)
 npm test           # Spiellogik (Deck, Nope, Angriff, Entschärfen, Zufallsspiele)
 npm run test:e2e   # echte Socket.IO-Runde mit drei simulierten Clients

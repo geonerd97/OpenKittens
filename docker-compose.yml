@@ -6,17 +6,17 @@ services:
     image: openkittens:local
     container_name: openkittens
     restart: unless-stopped
-    # Port links frei wählbar, falls 3000 schon belegt ist (z. B. "8080:3000")
+    # Port links frei wählbar, falls 3333 schon belegt ist (z. B. "8080:3333")
     ports:
-      - "3000:3000"
+      - "3333:3333"
     environment:
       # Port im Container
-      PORT: "3000"
+      PORT: "3333"
       # Leere Räume werden nach dieser Zeit (Minuten) aufgeräumt
       ROOM_TTL_MINUTES: "180"
       TZ: "Europe/Berlin"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3333/health"]
       interval: 30s
       timeout: 5s
       retries: 3

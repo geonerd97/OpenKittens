@@ -9,7 +9,7 @@ const { Server } = require('socket.io');
 const { Game, GameError, MIN_PLAYERS, MAX_PLAYERS } = require('./game');
 const { CARDS } = require('./cards');
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 3333;
 const HOST = process.env.HOST || '0.0.0.0';
 const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MINUTES || 180) * 60 * 1000;
 
