@@ -139,6 +139,7 @@ button, input, select { font: inherit; color: inherit; touch-action: manipulatio
 .player-main { display: flex; align-items: center; gap: .6rem; width: 100%; min-width: 0; }
 .bot-levels { display: flex; gap: .3rem; width: 100%; flex-wrap: wrap; }
 .bot-levels .opt { font-size: .76rem; padding: .25rem .6rem; min-height: 30px; }
+.hint.small.preview { color: var(--accent-2); margin-top: .2rem; }
 .bot-add { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-top: .6rem; }
 .bot-add .hint { margin: 0; }
 .player-list .pname-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -333,6 +334,34 @@ button, input, select { font: inherit; color: inherit; touch-action: manipulatio
 }
 .toast { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; padding: .6rem .9rem; box-shadow: var(--shadow); font-size: .88rem; animation: pop .2s ease; }
 .toast.bad { border-color: var(--danger); }
+
+/* -------------------------------------------------------- Kartenanimation */
+.fly-card {
+  position: fixed; z-index: 76; pointer-events: none; margin: 0;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .55); will-change: transform, opacity;
+}
+.fly-card.back {
+  background: linear-gradient(160deg, #3a3a52, #20202e);
+  border-color: #4a4a66; display: grid; place-items: center;
+}
+.fly-card.back .cemoji { font-size: 1.8rem; opacity: .9; }
+.fly-label {
+  position: fixed; z-index: 77; pointer-events: none;
+  background: rgba(10, 10, 16, .85); border-radius: 999px; padding: .25rem .7rem;
+  font-size: .82rem; font-weight: 600; transform: translate(-50%, -50%);
+}
+
+.pile.bump { animation: pileBump .35s ease; }
+.pile.spin { animation: pileSpin .6s ease; }
+.btn.draw.ready:not(:disabled) { animation: readyPulse 1.8s ease-in-out infinite; }
+.pile.deck.ready:not(:disabled) { border-color: var(--accent); animation: readyPulse 1.8s ease-in-out infinite; }
+
+@keyframes pileBump { 40% { transform: scale(1.09); } }
+@keyframes pileSpin { 50% { transform: rotate(180deg) scale(.92); } 100% { transform: rotate(360deg); } }
+@keyframes readyPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 122, 89, .45); }
+  50% { box-shadow: 0 0 0 10px rgba(255, 122, 89, 0); }
+}
 
 /* ----------------------------------------------------------------- Effekte */
 .fx-layer { position: fixed; inset: 0; z-index: 70; pointer-events: none; display: grid; place-items: center; }

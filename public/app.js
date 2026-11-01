@@ -24,6 +24,7 @@
     { key: 'nopeSeconds', label: 'Nope-Fenster', hint: 'Bedenkzeit für Nope-Karten', fmt: (v) => (v === 0 ? 'sofort' : `${v} s`) },
     { key: 'turnSeconds', label: 'Zeit pro Zug', hint: 'danach wird automatisch gezogen', fmt: (v) => (v === 0 ? 'ohne Limit' : `${v} s`) },
     { key: 'startCards', label: 'Startkarten', hint: 'zusätzlich zur Entschärfung', fmt: (v) => `${v}` },
+    { key: 'deckSize', label: 'Stapelgröße', hint: 'wächst mit der Spielerzahl', fmt: (v) => ({ 4: 'klein', 6: 'mittel', 9: 'groß' }[v] || `${v}`) },
     { key: 'extraBombs', label: 'Zusatzbomben', hint: 'über Spielerzahl − 1 hinaus', fmt: (v) => (v === 0 ? 'Standard' : `+${v}`) }
   ];
 
@@ -354,6 +355,17 @@
       row.append(head, opts);
       wrap.appendChild(row);
     });
+    if (v.deckPreview) {
+      const players = v.players.filter((p) => p.connected).length;
+      const preview = document.createElement('p');
+      preview.className = 'hint small preview';
+      preview.textContent = players >= 2
+        ? `Mit ${players} Spielern: ${v.deckPreview.deckCards} Karten im Nachziehstapel, davon `
+          + `${v.deckPreview.bombs} ${v.deckPreview.bombs === 1 ? 'Bombe' : 'Bomben'}`
+          + ` · je ${v.settings.startCards} Handkarten plus Entschärfung.`
+        : 'Sobald ein Mitspieler oder Bot da ist, steht hier die Stapelgröße.';
+      wrap.appendChild(preview);
+    }
     if (!host) {
       const note = document.createElement('p');
       note.className = 'hint small';
@@ -519,6 +531,7 @@
         + (p.id === v.currentId ? ' current' : '')
         + (!p.alive || p.spectator ? ' dead' : '');
       li.style.borderLeftColor = p.color;
+      li.dataset.playerId = p.id;
       const name = document.createElement('span');
       name.className = 'pname';
       name.append(avatarEl(p, 22), document.createTextNode(p.name + (p.id === v.youId ? ' (du)' : '')));
@@ -577,6 +590,8 @@
     const canAct = yourTurn && !v.pending && !v.prompt && v.phase === 'playing';
     $('btn-draw').disabled = !canAct;
     $('deck-pile').disabled = !canAct;
+    $('btn-draw').classList.toggle('ready', canAct);
+    $('deck-pile').classList.toggle('ready', canAct);
 
     renderHand(v);
     renderClock(v);
@@ -665,8 +680,8 @@
 
   /* ------------------------------------------------------------- Ausspielen */
 
-  $('btn-draw').addEventListener('click', () => { Sound.play('draw'); emit('drawCard'); });
-  $('deck-pile').addEventListener('click', () => { Sound.play('draw'); emit('drawCard'); });
+  $('btn-draw').addEventListener('click', () => emit('drawCard'));
+  $('deck-pile').addEventListener('click', () => emit('drawCard'));
   $('discard-pile').addEventListener('click', () => openDiscardView());
 
   $('btn-play').addEventListener('click', () => {
@@ -931,6 +946,96 @@
 
   /* ------------------------------------------------------------------ Effekte */
 
+  /* ------------------------------------------------------- Kartenanimation */
+
+  const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function rectOf(target) {
+    const el = typeof target === 'string' ? document.querySelector(target) : target;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return r.width || r.height ? r : null;
+  }
+
+  const deckRect = () => rectOf('#deck-pile');
+  const discardRect = () => rectOf('#discard-pile');
+  const handRect = () => rectOf('#hand');
+  function playerRect(id) {
+    if (!id) return null;
+    const el = document.querySelector(`#players-strip [data-player-id="${CSS.escape(id)}"]`);
+    return el ? rectOf(el) : null;
+  }
+  const screenCenter = () => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    return { left: w / 2 - 52, top: h / 2 - 71, width: 104, height: 142 };
+  };
+
+  function cardBack() {
+    const el = document.createElement('div');
+    el.className = 'card back';
+    el.innerHTML = '<span class="cemoji" aria-hidden="true">🎴</span>';
+    return el;
+  }
+
+  function bump(selector, cls = 'bump') {
+    const el = document.querySelector(selector);
+    if (!el || reducedMotion()) return;
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+    setTimeout(() => el.classList.remove(cls), 700);
+  }
+
+  /**
+   * Lässt eine Karte von A nach B fliegen. `hold` hält sie unterwegs groß in
+   * der Bildmitte an, damit man lesen kann, was man gezogen hat.
+   */
+  function flyCard(cardId, from, to, { faceDown = false, hold = false, delay = 0, endScale = 0.5 } = {}) {
+    if (!from || !to || reducedMotion()) return;
+    const el = faceDown ? cardBack() : cardEl(cardId, { compact: true });
+    el.classList.add('fly-card');
+    const width = Math.min(from.width || 104, 104);
+    const height = Math.min(from.height || 142, 142);
+    Object.assign(el.style, {
+      left: `${from.left + (from.width - width) / 2}px`,
+      top: `${from.top + (from.height - height) / 2}px`,
+      width: `${width}px`,
+      height: `${height}px`
+    });
+    document.body.appendChild(el);
+
+    const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+    const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+    const mid = screenCenter();
+    const mx = (mid.left + mid.width / 2) - (from.left + from.width / 2);
+    const my = (mid.top + mid.height / 2) - (from.top + from.height / 2);
+
+    // Beim "Halten" läuft die Zeitachse linear, damit die Karte wirklich
+    // lange genug groß stehen bleibt, um sie zu lesen.
+    const frames = hold
+      ? [
+        { transform: 'translate(0, 0) scale(.6) rotate(-6deg)', opacity: 0, easing: 'cubic-bezier(.2,.9,.3,1)' },
+        { transform: `translate(${mx}px, ${my}px) scale(1.45) rotate(0deg)`, opacity: 1, offset: 0.22, easing: 'linear' },
+        { transform: `translate(${mx}px, ${my}px) scale(1.45)`, opacity: 1, offset: 0.72, easing: 'cubic-bezier(.5,0,.3,1)' },
+        { transform: `translate(${dx}px, ${dy}px) scale(${endScale})`, opacity: 0.1 }
+      ]
+      : [
+        { transform: 'translate(0, 0) scale(.85)', opacity: 0.2 },
+        { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 26}px) scale(1.08) rotate(4deg)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${endScale})`, opacity: 0.15 }
+      ];
+    const duration = hold ? 1600 : 700;
+    const anim = el.animate(frames, {
+      duration,
+      delay,
+      easing: hold ? 'linear' : 'cubic-bezier(.2,.75,.3,1)',
+      fill: 'forwards'
+    });
+    anim.onfinish = () => el.remove();
+    setTimeout(() => el.remove(), duration + delay + 500);
+  }
+
   const FX = {
     bomb: { emoji: '💥', text: (d) => `${d.name} ist explodiert!`, sound: 'bomb', shake: true },
     defuse: { emoji: '🧯', text: (d) => `${d.name} entschärft die Bombe`, sound: 'defuse' },
@@ -945,6 +1050,7 @@
 
   /** Effekte nacheinander zeigen, damit z. B. Explosion und Sieg nicht kollidieren. */
   function showFx(data) {
+    animateFx(data);
     if (!FX[data.type]) return;
     if (fxQueue.length > 4) fxQueue.shift();
     fxQueue.push(data);
@@ -976,6 +1082,51 @@
     }
   }
 
+  /** Kartenflüge und kleine Hervorhebungen zu den Server-Ereignissen. */
+  function animateFx(data) {
+    const youId = view && view.youId;
+    switch (data.type) {
+      case 'play': {
+        const from = data.playerId === youId ? handRect() : playerRect(data.playerId);
+        const cards = Array.isArray(data.cards) && data.cards.length ? data.cards : [data.cardId];
+        cards.slice(0, 5).forEach((id, i) => flyCard(id, from, discardRect(), { delay: i * 110 }));
+        bump('#discard-pile');
+        break;
+      }
+      case 'nope':
+        flyCard('nope', data.playerId === youId ? handRect() : playerRect(data.playerId), discardRect());
+        bump('#discard-pile');
+        break;
+      case 'draw':
+        if (data.playerId !== youId) {
+          flyCard(null, deckRect(), playerRect(data.playerId), { faceDown: true });
+          bump('#deck-pile');
+        }
+        break;
+      case 'take':
+        flyCard(data.cardId, discardRect(), data.playerId === youId ? handRect() : playerRect(data.playerId), {
+          hold: data.playerId === youId
+        });
+        bump('#discard-pile');
+        break;
+      case 'transfer':
+        flyCard(null, playerRect(data.fromId), playerRect(data.toId), { faceDown: true });
+        break;
+      case 'steal':
+        flyCard(data.cardId || null, playerRect(data.fromId), playerRect(data.toId), { faceDown: !data.cardId });
+        break;
+      case 'shuffle':
+        bump('#deck-pile', 'spin');
+        break;
+      case 'defuse':
+        flyCard('defuse', handRect(), deckRect(), { endScale: 0.4 });
+        bump('#deck-pile');
+        break;
+      default:
+        break;
+    }
+  }
+
   /* ------------------------------------------------------------------ Render */
 
   function render() {
@@ -999,6 +1150,15 @@
   socket.on('state', (v) => { view = v; render(); });
   socket.on('toast', (msg) => toast(msg));
   socket.on('fx', (data) => showFx(data));
+
+  socket.on('drawn', ({ cardId }) => {
+    const info = cardInfo(cardId);
+    bump('#deck-pile');
+    flyCard(cardId, deckRect(), handRect(), { hold: true });
+    announce(`Du hast ${info.name} gezogen.`);
+    if (reducedMotion()) toast(`Du hast ${info.name} gezogen.`);
+    if (cardId !== 'bomb') Sound.play('draw'); // bei der Bombe kommt gleich der große Effekt
+  });
 
   socket.on('kicked', (reason) => {
     toast(reason || 'Du hast dieses Spiel in einem anderen Tab geöffnet.', true);

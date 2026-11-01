@@ -13,6 +13,22 @@ Alle nennenswerten Änderungen an OpenKittens. Das Format orientiert sich an
   genügt für eine Partie. Bots entscheiden nur mit öffentlich sichtbaren
   Informationen und ihrer eigenen Hand, pausieren ohne Zuschauer und überstehen
   einen Neustart des Servers.
+- **Kartenanimationen**: gezogene Karten fliegen vom Stapel und bleiben für den
+  Ziehenden kurz groß stehen, für alle anderen fliegt eine verdeckte Karte zum
+  jeweiligen Spieler. Ausgespielte Karten fliegen offen zur Ablage, geklaute und
+  verschenkte Karten verdeckt zwischen den Spielern, Mischen dreht den Stapel,
+  der Ziehen-Button pulsiert, wenn man am Zug ist. `prefers-reduced-motion` wird
+  beachtet.
+- **Stapelgröße** als Hausregel (klein, mittel, groß). Der Nachziehstapel wächst
+  mit der Spielerzahl, statt immer gleich dick zu sein – zu zweit dauert eine
+  Partie damit deutlich kürzer. Die Lobby zeigt vorab Kartenzahl und Bomben.
+
+### Geändert
+
+- Der Kartenpool wird jetzt auf eine Zielgröße gemischt statt in festen Mengen;
+  Untergrenzen sorgen dafür, dass Nope, Überspringen und Katzenpaare auch in
+  kleinen Stapeln vorkommen. Die Zahl der Entschärfungen richtet sich nach der
+  Stapelgröße.
 
 ## [1.0.0] – 2026-11-01
 

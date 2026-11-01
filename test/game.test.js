@@ -63,10 +63,51 @@ test('Startaufstellung: Hände, Bomben und Entschärfungen stimmen', () => {
     assert.equal(p.hand.length, 8, 'jede Hand hat 8 Karten');
     assert.equal(p.hand.filter((c) => c.id === 'defuse').length, 1, 'genau eine Entschärfung je Hand');
   });
-  const bombs = game.deck.filter((c) => c.id === 'bomb').length;
-  assert.equal(bombs, 3, 'Spieleranzahl minus 1 Bomben');
-  const defusesInDeck = game.deck.filter((c) => c.id === 'defuse').length;
-  assert.equal(defusesInDeck, 2, '6 Entschärfungen insgesamt, 4 auf den Händen');
+  const plan = game.deckPlan(4);
+  assert.equal(game.deck.length, plan.deckCards, 'Stapel entspricht der Planung');
+  assert.equal(game.deck.filter((c) => c.id === 'bomb').length, 3, 'Spieleranzahl minus 1 Bomben');
+  assert.equal(game.deck.filter((c) => c.id === 'defuse').length, plan.extraDefuses, 'übrige Entschärfungen im Stapel');
+  const allCards = [...game.deck, ...game.players.flatMap((p) => p.hand)];
+  assert.ok(allCards.filter((c) => c.id === 'nope').length >= 2, 'genug Nope-Karten im Spiel');
+  game.dispose();
+});
+
+test('Der Stapel wächst mit der Spielerzahl und folgt der Hausregel', () => {
+  const sizes = {};
+  [2, 4, 8].forEach((count) => {
+    const game = startedGame(Array.from({ length: count }, (_, i) => `P${i}`));
+    sizes[count] = game.deck.length;
+    assert.equal(game.deck.length, game.deckPlan(count).deckCards);
+    game.dispose();
+  });
+  assert.ok(sizes[2] < sizes[4] && sizes[4] < sizes[8], `Stapel wächst: ${JSON.stringify(sizes)}`);
+  assert.ok(sizes[2] < 30, `zu zweit bleibt es kurz (${sizes[2]} Karten)`);
+
+  const klein = makeGame(['A', 'B', 'C']);
+  klein.updateSettings(klein.hostId, { deckSize: 4 });
+  klein.start(klein.hostId);
+  const gross = makeGame(['A', 'B', 'C']);
+  gross.updateSettings(gross.hostId, { deckSize: 9 });
+  gross.start(gross.hostId);
+  assert.ok(gross.deck.length > klein.deck.length * 1.5,
+    `groß ist deutlich dicker als klein (${klein.deck.length} vs. ${gross.deck.length})`);
+  const lobby = makeGame(['A', 'B']);
+  assert.throws(() => lobby.updateSettings(lobby.hostId, { deckSize: 99 }), /Ungültig/);
+  lobby.dispose();
+  klein.dispose();
+  gross.dispose();
+});
+
+test('Auch der kleinste Stapel bleibt spielbar', () => {
+  const game = makeGame(['A', 'B']);
+  game.updateSettings(game.hostId, { deckSize: 4, startCards: 5 });
+  game.start(game.hostId);
+  const all = [...game.deck.map((c) => c.id), ...game.players.flatMap((p) => p.hand.map((c) => c.id))];
+  const count = (id) => all.filter((x) => x === id).length;
+  assert.ok(count('nope') >= 2, 'Nope ist dabei');
+  assert.ok(count('skip') >= 2, 'Überspringen ist dabei');
+  assert.ok(count('cat_pizza') >= 2, 'Katzenpaare sind möglich');
+  assert.equal(count('bomb'), 1);
   game.dispose();
 });
 
@@ -384,7 +425,7 @@ test('Kick des letzten Gegners beendet die Runde', () => {
 test('Hausregeln wirken auf Startkarten und Bombenzahl', () => {
   const game = makeGame(['A', 'B', 'C']);
   game.updateSettings(game.hostId, { startCards: 5, extraBombs: 2, nopeSeconds: 3, turnSeconds: 60 });
-  assert.deepEqual(game.settings, { nopeSeconds: 3, turnSeconds: 60, startCards: 5, extraBombs: 2 });
+  assert.deepEqual(game.settings, { nopeSeconds: 3, turnSeconds: 60, startCards: 5, deckSize: 6, extraBombs: 2 });
   assert.throws(() => game.updateSettings(game.hostId, { startCards: 99 }), /Ungültig/);
   const notHost = game.players.find((p) => p.id !== game.hostId);
   assert.throws(() => game.updateSettings(notHost.id, { startCards: 6 }), /Host/);

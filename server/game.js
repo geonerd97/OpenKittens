@@ -1,6 +1,6 @@
 'use strict';
 
-const { CARDS, buildPool, defuseCount } = require('./cards');
+const { CARDS, buildPool, defuseCount, MIN_TOTAL } = require('./cards');
 const bots = require('./bot');
 
 const PROMPT_TIMEOUT_MS = 30000;
@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS = {
   nopeSeconds: 6,   // 0 = Aktionen sofort ausführen
   turnSeconds: 0,   // 0 = kein Zeitlimit pro Zug
   startCards: 7,    // Handkarten zu Beginn (ohne Entschärfung)
+  deckSize: 6,      // Karten im Nachziehstapel je Spieler (+1 Spieler Reserve)
   extraBombs: 0     // zusätzliche Bomben über "Spielerzahl − 1" hinaus
 };
 
@@ -32,6 +33,7 @@ const SETTING_RANGES = {
   nopeSeconds: [0, 3, 6, 10],
   turnSeconds: [0, 30, 60, 90, 120],
   startCards: [5, 6, 7, 8, 9, 10],
+  deckSize: [4, 6, 9],
   extraBombs: [0, 1, 2, 3]
 };
 
@@ -273,10 +275,9 @@ class Game {
     this._reassignHost();
 
     const count = this.players.length;
-    const { startCards, extraBombs } = this.settings;
-    const pool = shuffle(buildPool(count));
-    const needed = count * startCards;
-    if (pool.length < needed + 4) throw new GameError('Zu viele Startkarten für diese Spielerzahl.');
+    const { startCards } = this.settings;
+    const plan = this.deckPlan(count);
+    const pool = shuffle(buildPool(count * startCards + plan.actionCards));
 
     this.players.forEach((p) => {
       p.hand = [{ uid: nextUid(), id: 'defuse' }];
@@ -288,9 +289,8 @@ class Game {
     });
 
     const rest = pool;
-    const extraDefuses = Math.max(0, defuseCount(count) - count);
-    for (let i = 0; i < extraDefuses; i++) rest.push('defuse');
-    const bombs = Math.max(1, count - 1 + extraBombs);
+    for (let i = 0; i < plan.extraDefuses; i++) rest.push('defuse');
+    const bombs = plan.bombs;
     this.bombsInPlay = bombs;
     for (let i = 0; i < bombs; i++) rest.push('bomb');
 
@@ -306,10 +306,23 @@ class Game {
     this.currentIndex = Math.floor(Math.random() * this.players.length);
     this.players[this.currentIndex].turnsLeft = 1;
     this.log = [];
-    this._log(`Runde ${this.round} startet mit ${count} Spielern – ${bombs} ${bombs === 1 ? 'Bombe' : 'Bomben'} im Stapel.`);
+    this._log(`Runde ${this.round} startet mit ${count} Spielern – ${this.deck.length} Karten und ${bombs} ${bombs === 1 ? 'Bombe' : 'Bomben'} im Stapel.`);
     this._log(`${this.currentPlayer.name} beginnt.`);
     this._refreshTurnClock();
     this._afterChange();
+  }
+
+  /**
+   * Wie groß wird der Nachziehstapel bei dieser Spielerzahl?
+   * Der Stapel wächst mit der Runde mit, statt immer gleich dick zu sein.
+   */
+  deckPlan(playerCount) {
+    const count = Math.max(2, playerCount);
+    const perPlayer = Number(this.settings.deckSize) || DEFAULT_SETTINGS.deckSize;
+    const actionCards = Math.max(MIN_TOTAL - count * this.settings.startCards, perPlayer * (count + 1));
+    const extraDefuses = Math.max(0, defuseCount(count, actionCards) - count);
+    const bombs = Math.max(1, count - 1 + Number(this.settings.extraBombs || 0));
+    return { actionCards, extraDefuses, bombs, deckCards: actionCards + extraDefuses + bombs };
   }
 
   resetToLobby(playerId) {
@@ -394,6 +407,14 @@ class Game {
     const targetName = action.targetId && this.findById(action.targetId) ? this.findById(action.targetId).name : null;
     this._log(`${player.name} spielt ${label}${targetName ? ` gegen ${targetName}` : ''}.`);
     this.lastPlay = { cardId: this._actionCardId(action), playerName: player.name };
+    this.hooks.fx({
+      type: 'play',
+      name: player.name,
+      playerId: player.id,
+      cardId: this._actionCardId(action),
+      cards: ids,
+      label
+    });
     this.turnDeadline = null;
 
     this.pending = {
@@ -440,7 +461,7 @@ class Game {
     this.pending.deadline = Date.now() + Math.max(this._nopeWindowMs(), 2500);
     this.lastPlay = { cardId: 'nope', playerName: player.name };
     this._log(`${player.name} spielt Nope! (${this.pending.nopeLayers}×)`);
-    this.hooks.fx({ type: 'nope', name: player.name, layers: this.pending.nopeLayers });
+    this.hooks.fx({ type: 'nope', name: player.name, playerId: player.id, cardId: 'nope', layers: this.pending.nopeLayers });
     this._armPending();
     this._afterChange();
   }
@@ -528,6 +549,7 @@ class Game {
         shuffle(this.deck);
         this.peeks = {};
         this._log('Der Stapel wurde gemischt.');
+        this.hooks.fx({ type: 'shuffle', name: player.name });
         this._finishAction();
         break;
 
@@ -562,7 +584,7 @@ class Game {
         target.hand = target.hand.filter((c) => c.uid !== card.uid);
         player.hand.push(card);
         this._log(`${player.name} klaut ${target.name} eine Karte.`);
-        this.hooks.fx({ type: 'steal', name: player.name, victim: target.name });
+        this.hooks.fx({ type: 'steal', name: player.name, victim: target.name, fromId: target.id, toId: player.id });
         this.hooks.toPlayer(player.id, 'toast', `Du hast ${CARDS[card.id].name} von ${target.name} geklaut.`);
         this.hooks.toPlayer(target.id, 'toast', `${player.name} hat dir ${CARDS[card.id].name} geklaut.`);
         this._finishAction();
@@ -578,7 +600,7 @@ class Game {
           target.hand = target.hand.filter((c) => c.uid !== card.uid);
           player.hand.push(card);
           this._log(`${player.name} fordert ${wanted.name} von ${target.name} – und bekommt sie.`);
-          this.hooks.fx({ type: 'steal', name: player.name, victim: target.name });
+          this.hooks.fx({ type: 'steal', name: player.name, victim: target.name, fromId: target.id, toId: player.id, cardId: action.demandCardId });
           this.hooks.toPlayer(target.id, 'toast', `${player.name} hat dir ${wanted.name} abgenommen.`);
         } else {
           this._log(`${target.name} hat keine ${wanted.name} – die Forderung läuft ins Leere.`);
@@ -595,6 +617,7 @@ class Game {
           this.discard.splice(idx, 1);
           player.hand.push({ uid: nextUid(), id: action.discardCardId });
           this._log(`${player.name} holt ${CARDS[action.discardCardId].name} aus dem Ablagestapel.`);
+          this.hooks.fx({ type: 'take', name: player.name, playerId: player.id, cardId: action.discardCardId });
         }
         this._finishAction();
         break;
@@ -637,6 +660,7 @@ class Game {
       const defuse = player.hand.find((c) => c.id === 'defuse');
       this._log(`${player.name} zieht ein Explodierendes Kätzchen!`);
       this.lastPlay = { cardId: 'bomb', playerName: player.name };
+      this.hooks.toPlayer(player.id, 'drawn', { cardId: 'bomb' });
       if (defuse) {
         player.hand = player.hand.filter((c) => c.uid !== defuse.uid);
         this.discard.push('defuse');
@@ -657,7 +681,8 @@ class Game {
     }
 
     player.hand.push(card);
-    this.hooks.toPlayer(player.id, 'toast', `Du hast ${CARDS[card.id].name} gezogen.`);
+    this.hooks.toPlayer(player.id, 'drawn', { cardId: card.id });
+    this.hooks.fx({ type: 'draw', name: player.name, playerId: player.id });
     this._log(`${player.name} zieht eine Karte.`);
     this._endTurn();
   }
@@ -722,6 +747,7 @@ class Game {
         player.hand = player.hand.filter((c) => c.uid !== card.uid);
         requester.hand.push(card);
         this._log(`${player.name} gibt ${requester.name} eine Karte${auto ? ' (automatisch)' : ''}.`);
+        this.hooks.fx({ type: 'transfer', fromId: player.id, toId: requester.id });
         this.hooks.toPlayer(requester.id, 'toast', `${player.name} gibt dir ${CARDS[card.id].name}.`);
       }
       this._finishAction();
@@ -965,6 +991,9 @@ class Game {
       settingRanges: SETTING_RANGES,
       botLevels: bots.LEVELS,
       botLevelNames: bots.LEVEL_NAMES,
+      deckPreview: this.phase === 'lobby'
+        ? this.deckPlan(this.players.filter((p) => p.connected).length)
+        : null,
       currentId: this.phase === 'playing' && current ? current.id : null,
       turnDeadline: this.turnDeadline,
       deckCount: this.deck.length,

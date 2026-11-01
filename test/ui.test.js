@@ -81,12 +81,28 @@ async function main() {
   assert.equal(await b.isDisabled('#settings .opt'), true, 'Gäste können die Regeln nicht ändern');
   step('Zweiter Spieler in der Lobby');
 
+  const previewText = async () => (await a.textContent('#settings .preview')).trim();
+  assert.match(await previewText(), /Karten im Nachziehstapel/, 'Lobby zeigt die Stapelgröße');
+  const mittel = Number((await previewText()).match(/: (\d+) Karten/)[1]);
+  const setting = (label, nth) => `#settings [aria-label="${label}"] .opt:nth-child(${nth})`;
+  await a.click(setting('Stapelgröße', 1)); // klein
+  await wait(250);
+  const klein = Number((await previewText()).match(/: (\d+) Karten/)[1]);
+  await a.click(setting('Stapelgröße', 3)); // groß
+  await wait(250);
+  const gross = Number((await previewText()).match(/: (\d+) Karten/)[1]);
+  assert.ok(klein < mittel && mittel < gross, `Stapelgröße wirkt: klein ${klein}, mittel ${mittel}, groß ${gross}`);
+  await a.click(setting('Stapelgröße', 2)); // zurück auf mittel
+  await wait(200);
+  step('Stapelgröße einstellen mit Vorschau in der Lobby');
+
   // Hausregeln setzen: kurzes Nope-Fenster, damit der Test flott bleibt
-  await a.click('#settings .setting:nth-child(1) .opt:nth-child(2)'); // Nope-Fenster 3 s
-  await a.click('#settings .setting:nth-child(4) .opt:nth-child(1)'); // Standard-Bomben
+  await a.click(setting('Nope-Fenster', 2)); // 3 s
+  await a.click(setting('Zusatzbomben', 1)); // Standard
   await wait(200);
   assert.equal(rooms.get(code).settings.nopeSeconds, 3);
-  assert.equal(await a.getAttribute('#settings .setting:nth-child(1) .opt:nth-child(2)', 'aria-pressed'), 'true');
+  assert.equal(rooms.get(code).settings.extraBombs, 0);
+  assert.equal(await a.getAttribute(setting('Nope-Fenster', 2), 'aria-pressed'), 'true');
   step('Host ändert die Hausregeln');
 
   // Dritter Spieler, der gleich wieder entfernt wird
@@ -158,6 +174,9 @@ async function main() {
   await wait(200);
   await selectCard(pageOf(cur), 'Blick in die Zukunft');
   await playSelected(pageOf(cur));
+  await pageOf(cur).waitForSelector('.fly-card', { timeout: 3000 });
+  await pageOf(opp).waitForSelector('.fly-card', { timeout: 3000 });
+  step('Gespielte Karte fliegt bei allen zur Ablage');
   await wait(300);
   assert.ok(await pageOf(opp).isVisible('#nope-bar'), 'Nope-Leiste erscheint beim Gegner');
   assert.match(await pageOf(opp).textContent('#nope-text'), /Blick in die Zukunft/);
@@ -217,6 +236,8 @@ async function main() {
   game.hooks.broadcast();
   await wait(200);
   await pageOf(cur).click('#btn-draw');
+  await pageOf(cur).waitForSelector('.fly-card', { timeout: 3000 });
+  step('Gezogene Karte wird dem Ziehenden gezeigt');
   await wait(500);
   assert.match(await pageOf(cur).textContent('#modal-title'), /Bombe entschärft/);
   await shot(pageOf(cur), 'defuse.png');
@@ -237,6 +258,23 @@ async function main() {
   await a.click('#btn-log-close');
   await wait(300);
   step('Verlauf als Schublade auf Handy-Breite');
+
+  /* -------------------------------------- Verdeckte Karte für die anderen */
+  {
+    const drawer = game.currentPlayer;
+    const watcher = otherOf(drawer);
+    game.deck.push({ uid: 'plain', id: 'shuffle' });
+    game.hooks.broadcast();
+    await wait(200);
+    assert.equal(await pageOf(drawer).getAttribute('#btn-draw', 'class'), 'btn draw ready',
+      'der Ziehen-Button pulsiert, wenn man dran ist');
+    await pageOf(drawer).click('#btn-draw');
+    await pageOf(watcher).waitForSelector('.fly-card.back', { timeout: 3000 });
+    assert.equal(await pageOf(watcher).locator('.fly-card:not(.back)').count(), 0,
+      'Mitspieler sehen die gezogene Karte nicht');
+    await wait(400);
+    step('Mitspieler sehen nur eine verdeckte Karte');
+  }
 
   /* ------------------------------------------------- Layout auf dem Handy */
   for (const size of [{ width: 360, height: 740 }, { width: 390, height: 844 }, { width: 414, height: 896 }]) {

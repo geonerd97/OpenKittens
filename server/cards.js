@@ -32,7 +32,7 @@ const CARDS = {
 
 const CAT_IDS = Object.keys(CARDS).filter((id) => CARDS[id].kind === 'cat');
 
-/** Grundmengen des Aktionsstapels (ohne Bomben und Entschärfungen). */
+/** Mischungsverhältnis des Aktionsstapels (ohne Bomben und Entschärfungen). */
 const BASE_COUNTS = {
   skip: 4,
   attack: 4,
@@ -47,21 +47,72 @@ const BASE_COUNTS = {
   cat_potato: 4
 };
 
+/** Untergrenzen, damit auch ein kleiner Stapel spielbar bleibt. */
+const MIN_COUNTS = {
+  skip: 2,
+  attack: 2,
+  shuffle: 1,
+  future: 2,
+  nope: 2,
+  favor: 1,
+  cat_pizza: 2,
+  cat_melon: 2,
+  cat_beard: 2,
+  cat_rainbow: 2,
+  cat_potato: 2
+};
+
+const BASE_TOTAL = Object.values(BASE_COUNTS).reduce((a, b) => a + b, 0);
+const MIN_TOTAL = Object.values(MIN_COUNTS).reduce((a, b) => a + b, 0);
+
 /**
- * Baut den Kartenpool für eine bestimmte Spielerzahl.
- * Ab 6 Spielern wird der Aktionsstapel verdoppelt, damit genug Karten da sind.
+ * Baut einen Aktionsstapel mit genau `total` Karten im üblichen Mischungs-
+ * verhältnis. Kleine Stapel behalten die Untergrenzen aus MIN_COUNTS, damit
+ * Nope, Überspringen und Katzenpaare nicht verschwinden.
  */
-function buildPool(playerCount) {
-  const factor = playerCount > 5 ? 2 : 1;
+function buildPool(total) {
+  const size = Math.max(MIN_TOTAL, Math.round(total));
+  const factor = size / BASE_TOTAL;
+  const counts = {};
+  for (const [id, base] of Object.entries(BASE_COUNTS)) {
+    counts[id] = Math.max(MIN_COUNTS[id], Math.round(base * factor));
+  }
+
+  const ids = Object.keys(counts);
+  const weight = (id) => BASE_COUNTS[id];
+  let sum = ids.reduce((acc, id) => acc + counts[id], 0);
+
+  // Auf die Zielgröße bringen: zuerst dort kürzen bzw. aufstocken,
+  // wo der größte Abstand zum Sollverhältnis besteht.
+  while (sum > size) {
+    const candidates = ids.filter((id) => counts[id] > MIN_COUNTS[id]);
+    if (!candidates.length) break;
+    const id = candidates.reduce((best, cur) =>
+      (counts[cur] / weight(cur) > counts[best] / weight(best) ? cur : best), candidates[0]);
+    counts[id] -= 1;
+    sum -= 1;
+  }
+  while (sum < size) {
+    const id = ids.reduce((best, cur) =>
+      (counts[cur] / weight(cur) < counts[best] / weight(best) ? cur : best), ids[0]);
+    counts[id] += 1;
+    sum += 1;
+  }
+
   const pool = [];
-  for (const [id, count] of Object.entries(BASE_COUNTS)) {
-    for (let i = 0; i < count * factor; i++) pool.push(id);
+  for (const [id, count] of Object.entries(counts)) {
+    for (let i = 0; i < count; i++) pool.push(id);
   }
   return pool;
 }
 
-function defuseCount(playerCount) {
-  return playerCount > 5 ? 10 : 6;
+/**
+ * Entschärfungen insgesamt: eine je Spieler plus ein paar im Stapel,
+ * abhängig davon, wie viele Karten überhaupt im Spiel sind.
+ */
+function defuseCount(playerCount, deckRest) {
+  const extra = Math.max(1, Math.round((deckRest || 0) / 12));
+  return playerCount + extra;
 }
 
-module.exports = { CARDS, CAT_IDS, buildPool, defuseCount };
+module.exports = { CARDS, CAT_IDS, BASE_COUNTS, MIN_COUNTS, MIN_TOTAL, buildPool, defuseCount };

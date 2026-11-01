@@ -205,7 +205,13 @@ nie in den Nachziehstapel oder in fremde Hände.
 | Nope-Fenster | sofort / 3 / 6 / 10 s | Bedenkzeit für Nope-Karten |
 | Zeit pro Zug | ohne Limit / 30 / 60 / 90 / 120 s | danach zieht der Server automatisch |
 | Startkarten | 5 – 10 | Handkarten zu Beginn, zusätzlich zur Entschärfung |
+| Stapelgröße | klein / mittel / groß | wie dick der Nachziehstapel wird – er wächst mit der Spielerzahl mit |
 | Zusatzbomben | Standard / +1 / +2 / +3 | mehr Bomben als „Spielerzahl − 1" |
+
+Der Nachziehstapel richtet sich nach der Runde: zu zweit sind es bei „mittel" rund
+20 Karten, zu viert rund 35, zu acht rund 65. Die Lobby zeigt vor dem Start, wie
+viele Karten und Bomben es werden. Für eine schnelle Partie „klein" wählen, für
+einen langen Abend „groß".
 
 ---
 
@@ -220,6 +226,12 @@ nie in den Nachziehstapel oder in fremde Hände.
   nächsten Runde dabei.
 * **Neustart:** Laufende Runden werden alle paar Sekunden gesichert und nach einem
   Container-Neustart wiederhergestellt (offene Nope-Fenster verfallen dabei).
+* **Animationen:** Deine gezogene Karte fliegt vom Stapel hoch, bleibt kurz groß
+  stehen, damit du sie lesen kannst, und wandert dann in die Hand – die Mitspieler
+  sehen nur eine verdeckte Karte zu dir fliegen. Ausgespielte Karten fliegen offen
+  zur Ablage, geklaute und geschenkte Karten verdeckt von Spieler zu Spieler,
+  Mischen dreht den Stapel. Wer `prefers-reduced-motion` eingestellt hat, bekommt
+  stattdessen schlichte Hinweise.
 * **Ton und Effekte:** Explosion, Nope, Klauen und Sieg haben kurze Soundeffekte –
   abschaltbar über 🔊 in der Kopfleiste, die Einstellung bleibt im Browser gespeichert.
 * **Bedienung ohne Maus:** Karten lassen sich per Tab und Enter auswählen, Dialoge mit
