@@ -71,6 +71,78 @@ ports:
 
 ---
 
+## Auf dem Raspberry Pi
+
+Läuft auf jedem Pi – das Node-Image gibt es für `arm64` (Pi 3/4/5 mit 64-Bit-System),
+`armv7` (32-Bit-System) und `armv6` (Pi Zero/1). Welche Architektur dein Pi fährt,
+zeigt `uname -m`.
+
+### Mit Docker (empfohlen)
+
+```bash
+# 1. Docker einmalig installieren
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# danach einmal ab- und wieder anmelden (oder: newgrp docker)
+
+# 2. Spiel holen und starten
+git clone https://github.com/geonerd97/OpenKittens.git
+cd OpenKittens
+docker compose up -d --build
+```
+
+Der erste Build dauert auf einem Pi je nach Modell zwei bis zehn Minuten, danach
+startet der Container in Sekunden. Durch `restart: unless-stopped` kommt er nach
+einem Stromausfall oder Neustart des Pi von allein wieder hoch.
+
+```bash
+hostname -I            # IP-Adresse des Pi herausfinden
+docker compose logs -f # Logs
+docker compose ps      # läuft es?
+```
+
+Aufrufen lässt sich das Spiel dann unter `http://<ip-des-pi>:3333` – und auf den
+meisten Geräten auch unter `http://raspberrypi.local:3333`, solange der Pi seinen
+Standardnamen hat (Avahi/Bonjour ist auf Raspberry Pi OS vorinstalliert).
+
+**Update:**
+
+```bash
+cd OpenKittens && git pull && docker compose up -d --build
+```
+
+### Ohne Docker (schlanker, startet schneller)
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+
+git clone https://github.com/geonerd97/OpenKittens.git
+cd OpenKittens
+npm ci --omit=dev
+
+sudo cp deploy/openkittens.service /etc/systemd/system/
+sudo nano /etc/systemd/system/openkittens.service   # Benutzer und Pfade prüfen
+sudo systemctl daemon-reload
+sudo systemctl enable --now openkittens
+systemctl status openkittens
+```
+
+Die mitgelieferte Unit liegt unter `deploy/openkittens.service` und ist auf den
+Benutzer `pi` und `/home/pi/OpenKittens` eingestellt – beides gegebenenfalls anpassen.
+Logs kommen mit `journalctl -u openkittens -f`.
+
+### Gut zu wissen
+
+* **Speicherbedarf** liegt im Betrieb bei ungefähr 70 MB, das Spiel läuft also auch
+  auf einem Pi Zero 2 W problemlos.
+* **Firewall:** Raspberry Pi OS hat standardmäßig keine aktive Firewall. Falls du
+  `ufw` nutzt: `sudo ufw allow 3333/tcp`.
+* **Fester Platz im Netz:** Eine feste IP oder ein DHCP-Reservierungseintrag im Router
+  spart das Suchen vor jeder Spielrunde.
+
+---
+
 ## Spielregeln
 
 Ziel: **Als Letzte(r) übrig bleiben.**
@@ -176,6 +248,7 @@ server/game.js    Spiellogik: Züge, Nope-Fenster, Kombis, Timer, Sichtbarkeiten
 server/index.js   Express + Socket.IO, Raumverwaltung, Persistenz, Aufräum-Job
 public/           Oberfläche (HTML/CSS/JS ohne Build-Schritt)
 public/vendor/    qrcode-generator (MIT) für den QR-Code in der Lobby
+deploy/           systemd-Unit für den Betrieb ohne Docker
 test/             Logik-, Netzwerk- und Oberflächentests
 .github/workflows CI: Tests plus Docker-Build mit Smoke-Test
 ```

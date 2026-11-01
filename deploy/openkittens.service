@@ -1,0 +1,34 @@
+# OpenKittens als Systemdienst (Variante ohne Docker)
+#
+#   sudo cp deploy/openkittens.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/openkittens.service   # User und Pfade anpassen
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now openkittens
+#   systemctl status openkittens
+
+[Unit]
+Description=OpenKittens – lokales Kartenspiel
+Documentation=https://github.com/geonerd97/OpenKittens
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Benutzer und Pfad an die eigene Installation anpassen (auf dem Pi oft "pi")
+User=pi
+WorkingDirectory=/home/pi/OpenKittens
+Environment=NODE_ENV=production
+Environment=PORT=3333
+Environment=DATA_DIR=/home/pi/OpenKittens/data
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=5
+# Etwas Abschottung – schadet nicht, kostet nichts
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/pi/OpenKittens/data
+
+[Install]
+WantedBy=multi-user.target
