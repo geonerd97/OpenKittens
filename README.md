@@ -226,6 +226,10 @@ einen langen Abend „groß".
   nächsten Runde dabei.
 * **Neustart:** Laufende Runden werden alle paar Sekunden gesichert und nach einem
   Container-Neustart wiederhergestellt (offene Nope-Fenster verfallen dabei).
+* **Kartenstapel:** Gleiche Karten liegen in der Hand als ein Stapel mit Anzahl
+  (`×3`). Jeder Tipp nimmt eine Karte mehr aus dem Stapel in die Auswahl, ein
+  weiterer Tipp legt alle zurück – für Katzenpaare und Dreier reicht also mehrfaches
+  Antippen derselben Karte.
 * **Animationen:** Deine gezogene Karte fliegt vom Stapel hoch, bleibt kurz groß
   stehen, damit du sie lesen kannst, und wandert dann in die Hand – die Mitspieler
   sehen nur eine verdeckte Karte zu dir fliegen. Ausgespielte Karten fliegen offen

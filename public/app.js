@@ -124,20 +124,36 @@
   }
 
   /** Karte als Button (auswählbar) oder als reine Anzeige. */
-  function cardEl(id, { pressed = false, compact = false, onClick = null, label = null } = {}) {
+  function cardEl(id, { pressed = false, compact = false, onClick = null, label = null,
+    count = 1, selectedCount = 0 } = {}) {
     const info = cardInfo(id);
     const el = document.createElement(onClick ? 'button' : 'div');
     el.className = `card${compact ? ' compact' : ''}`;
+    if (count > 1) el.classList.add(count > 2 ? 'stack-3' : 'stack-2');
     if (onClick) {
       el.type = 'button';
-      el.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+      el.setAttribute('aria-pressed', selectedCount > 0 || pressed ? 'true' : 'false');
       el.addEventListener('click', onClick);
     }
-    el.innerHTML = '<span class="cemoji" aria-hidden="true"></span><span class="cname"></span><span class="ctext"></span><span class="cbar"></span>';
+    el.innerHTML = '<span class="cemoji" aria-hidden="true"></span><span class="cname"></span>'
+      + '<span class="ctext"></span><span class="cbar"></span>';
     el.querySelector('.cemoji').textContent = info.emoji;
     el.querySelector('.cname').textContent = label || info.name;
     el.querySelector('.ctext').textContent = info.text || '';
     el.querySelector('.cbar').style.background = info.color;
+
+    if (count > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'cstack';
+      badge.textContent = `×${count}`;
+      el.appendChild(badge);
+    }
+    if (selectedCount > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'csel';
+      badge.textContent = selectedCount > 1 ? String(selectedCount) : '✓';
+      el.appendChild(badge);
+    }
     return el;
   }
 
@@ -490,7 +506,7 @@
     if (!v.you.alive) return 'Du bist ausgeschieden – du kannst weiter zuschauen.';
     if (selection.size === 0) {
       return v.you.isCurrent
-        ? 'Karten antippen zum Auswählen – oder direkt ziehen und den Zug beenden.'
+        ? 'Karten antippen zum Auswählen – gleiche liegen als Stapel, jeder Tipp nimmt eine mehr.'
         : 'Du bist nicht am Zug. Nope kannst du trotzdem jederzeit spielen.';
     }
     const ids = selectedIds(v);
@@ -616,34 +632,51 @@
     const hand = $('hand');
     // Fokus über den Neuaufbau hinweg erhalten (Tastaturbedienung)
     const active = document.activeElement;
-    const focusUid = active && active.dataset && hand.contains(active) ? active.dataset.uid : null;
+    const focusGroup = active && active.dataset && hand.contains(active) ? active.dataset.group : null;
     const scrollLeft = hand.scrollLeft;
     hand.innerHTML = '';
     const cards = v.you ? [...v.you.hand] : [];
-    cards.sort((a, b) => {
-      const d = SORT_ORDER.indexOf(a.id) - SORT_ORDER.indexOf(b.id);
-      return d !== 0 ? d : a.uid.localeCompare(b.uid);
-    });
     const valid = new Set(cards.map((c) => c.uid));
     for (const uid of [...selection]) if (!valid.has(uid)) selection.delete(uid);
 
-    cards.forEach((c) => {
-      const kind = cardInfo(c.id).kind;
-      const el = cardEl(c.id, {
-        pressed: selection.has(c.uid),
+    // Gleiche Karten liegen als ein Stapel – das hält die Hand übersichtlich
+    const groups = [];
+    const byId = new Map();
+    cards.forEach((card) => {
+      if (!byId.has(card.id)) {
+        const group = { id: card.id, cards: [] };
+        byId.set(card.id, group);
+        groups.push(group);
+      }
+      byId.get(card.id).cards.push(card);
+    });
+    groups.sort((a, b) => SORT_ORDER.indexOf(a.id) - SORT_ORDER.indexOf(b.id));
+
+    groups.forEach((group) => {
+      const info = cardInfo(group.id);
+      const selected = group.cards.filter((c) => selection.has(c.uid));
+      const el = cardEl(group.id, {
+        count: group.cards.length,
+        selectedCount: selected.length,
         onClick: () => {
-          if (selection.has(c.uid)) selection.delete(c.uid);
-          else selection.add(c.uid);
+          // Jeder Tipp nimmt eine Karte mehr vom Stapel, danach wieder von vorn
+          const next = group.cards.find((c) => !selection.has(c.uid));
+          if (next) selection.add(next.uid);
+          else group.cards.forEach((c) => selection.delete(c.uid));
           Sound.play('play');
           render();
         }
       });
-      if (kind !== 'action' && kind !== 'cat') el.classList.add('passive');
-      el.dataset.uid = c.uid;
+      if (info.kind !== 'action' && info.kind !== 'cat') el.classList.add('passive');
+      el.dataset.group = group.id;
+      el.setAttribute('aria-label', group.cards.length > 1
+        ? `${info.name}, ${group.cards.length} Karten, davon ${selected.length} ausgewählt`
+        : `${info.name}${selected.length ? ', ausgewählt' : ''}`);
       hand.appendChild(el);
     });
-    if (focusUid) {
-      const again = hand.querySelector(`[data-uid="${CSS.escape(focusUid)}"]`);
+
+    if (focusGroup) {
+      const again = hand.querySelector(`[data-group="${CSS.escape(focusGroup)}"]`);
       if (again) { again.focus({ preventScroll: true }); hand.scrollLeft = scrollLeft; }
     }
     if (!cards.length) {

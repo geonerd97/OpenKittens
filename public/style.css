@@ -257,7 +257,7 @@ button, input, select { font: inherit; color: inherit; touch-action: manipulatio
 }
 .hand-title { font-size: .78rem; color: var(--muted); margin: 0 0 .4rem; line-height: 1.35; min-height: 2.2em; }
 .hand {
-  display: flex; gap: .45rem; overflow-x: auto; padding-bottom: .4rem; max-width: 100%;
+  display: flex; gap: .7rem; overflow-x: auto; padding: 1.1rem .9rem .9rem .6rem; max-width: 100%;
   scroll-snap-type: x proximity; overscroll-behavior-x: contain; scrollbar-width: thin; min-height: 140px;
 }
 .action-bar { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .5rem; }
@@ -271,12 +271,24 @@ button, input, select { font: inherit; color: inherit; touch-action: manipulatio
   text-align: left; scroll-snap-align: center; font-family: inherit;
 }
 .card:hover { transform: translateY(-3px); }
-.card[aria-pressed="true"] { transform: translateY(-10px); box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
-.card[aria-pressed="true"]::after {
-  content: "✓"; position: absolute; top: -9px; right: -5px; width: 22px; height: 22px;
-  background: var(--accent); color: #1b1b26; border-radius: 50%; display: grid; place-items: center;
-  font-size: .8rem; font-weight: 900;
+.card[aria-pressed="true"] { transform: translateY(-10px); border-color: var(--accent); }
+.card .csel {
+  position: absolute; top: -9px; right: -6px; min-width: 22px; height: 22px; padding: 0 5px;
+  background: var(--accent); color: #1b1b26; border-radius: 999px; display: grid; place-items: center;
+  font-size: .78rem; font-weight: 900; box-shadow: 0 2px 6px rgba(0, 0, 0, .5);
 }
+.card .cstack {
+  position: absolute; top: -8px; left: -6px; padding: .05rem .4rem;
+  background: var(--bg-raised); border: 1px solid var(--line); color: var(--text);
+  border-radius: 999px; font-size: .7rem; font-weight: 700;
+}
+/* Mehrere gleiche Karten liegen sichtbar aufeinander */
+.card.stack-2 { box-shadow: 4px 5px 0 -1px var(--bg-card), 4px 5px 0 0 var(--line); }
+.card.stack-3 {
+  box-shadow: 4px 5px 0 -1px var(--bg-card), 4px 5px 0 0 var(--line),
+              8px 10px 0 -1px var(--bg-card), 8px 10px 0 0 var(--line);
+}
+.card.stack-2[aria-pressed="true"], .card.stack-3[aria-pressed="true"] { border-color: var(--accent); }
 .card .cemoji { font-size: 1.7rem; line-height: 1.1; }
 .card .cname { font-size: .74rem; font-weight: 700; line-height: 1.15; }
 .card .ctext {
@@ -405,7 +417,7 @@ body.shake { animation: shake .45s ease; }
   .pile-emoji { font-size: 2.6rem; }
   .card { flex-basis: 108px; height: 152px; }
   .card .ctext { -webkit-line-clamp: 5; }
-  .hand { min-height: 158px; }
+  .hand { min-height: 172px; }
   .action-bar { grid-template-columns: repeat(2, minmax(0, 220px)); justify-content: flex-end; }
   .nope-bar { grid-template-columns: 1fr auto; align-items: center; bottom: 1.2rem; }
   .nope-actions { grid-template-columns: auto auto; }
@@ -423,7 +435,7 @@ body.shake { animation: shake .45s ease; }
 
 /* Querformat auf dem Handy: Platz ist knapp, Karten kompakter */
 @media (max-height: 520px) and (orientation: landscape) {
-  .hand { min-height: 108px; }
+  .hand { min-height: 118px; }
   .card { height: 102px; flex-basis: 84px; }
   .card .ctext { display: none; }
   .pile { width: 84px; height: 112px; }

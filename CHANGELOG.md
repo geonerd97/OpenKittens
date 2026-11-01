@@ -13,6 +13,10 @@ Alle nennenswerten Änderungen an OpenKittens. Das Format orientiert sich an
   genügt für eine Partie. Bots entscheiden nur mit öffentlich sichtbaren
   Informationen und ihrer eigenen Hand, pausieren ohne Zuschauer und überstehen
   einen Neustart des Servers.
+- **Kartenstapel in der Hand**: gleiche Karten werden zu einem Stapel mit
+  Anzahl zusammengefasst. Mehrfaches Antippen wählt entsprechend viele Karten
+  aus, ein weiterer Tipp hebt die Auswahl auf. Das Abzeichen zeigt, wie viele
+  davon gerade gewählt sind.
 - **Kartenanimationen**: gezogene Karten fliegen vom Stapel und bleiben für den
   Ziehenden kurz groß stehen, für alle anderen fliegt eine verdeckte Karte zum
   jeweiligen Spieler. Ausgespielte Karten fliegen offen zur Ablage, geklaute und

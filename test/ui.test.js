@@ -136,13 +136,42 @@ async function main() {
   const firstCard = a.locator('#hand .card').first();
   assert.equal(await firstCard.evaluate((el) => el.tagName), 'BUTTON', 'Handkarten sind Buttons');
   assert.equal(await firstCard.getAttribute('aria-pressed'), 'false');
+  const stackSize = Number(((await firstCard.getAttribute('aria-label')) || '').match(/, (\d+) Karten/)?.[1] || 1);
   await firstCard.focus();
   await a.keyboard.press('Enter');
   await wait(200);
   assert.equal(await a.locator('#hand .card[aria-pressed="true"]').count(), 1, 'Karte per Tastatur ausgewählt');
-  await a.keyboard.press('Enter');
-  await wait(200);
+  for (let i = 0; i < stackSize; i++) { await a.keyboard.press('Enter'); await wait(120); }
   assert.equal(await a.locator('#hand .card[aria-pressed="true"]').count(), 0, 'Auswahl per Tastatur aufgehoben');
+  /* --------------------------------------------------- Gleiche Karten stapeln */
+  {
+    const mia = game.players.find((p) => p.name === 'Mia');
+    mia.hand = mia.hand.filter((c) => c.id !== 'cat_potato');
+    for (let i = 0; i < 3; i++) give(mia, 'cat_potato');
+    game.hooks.broadcast();
+    await wait(250);
+    const stack = a.locator('#hand .card:has(.cname:text-is("Kartoffelkatze"))');
+    assert.equal(await stack.count(), 1, 'drei gleiche Karten liegen als ein Stapel');
+    assert.equal((await stack.locator('.cstack').textContent()).trim(), '×3', 'Stapel zeigt die Anzahl');
+    const handTiles = await a.locator('#hand .card').count();
+    assert.ok(handTiles < mia.hand.length, `${mia.hand.length} Karten in ${handTiles} Stapeln`);
+
+    await stack.click();
+    await wait(150);
+    assert.equal((await stack.locator('.csel').textContent()).trim(), '✓', 'erster Tipp wählt eine Karte');
+    await stack.click();
+    await wait(150);
+    assert.equal((await stack.locator('.csel').textContent()).trim(), '2', 'zweiter Tipp wählt zwei');
+    await stack.click();
+    await wait(150);
+    assert.equal((await stack.locator('.csel').textContent()).trim(), '3', 'dritter Tipp wählt drei');
+    assert.match(await a.textContent('#btn-play'), /\(3\)/, 'Spielen-Button zählt mit');
+    await stack.click();
+    await wait(150);
+    assert.equal(await stack.locator('.csel').count(), 0, 'noch ein Tipp hebt die Auswahl auf');
+    step('Gleiche Karten liegen als Stapel mit Mehrfachauswahl');
+  }
+
   await a.click('#btn-rules');
   await wait(250);
   assert.equal(await a.isVisible('#modal'), true);
@@ -195,7 +224,8 @@ async function main() {
   game.hooks.broadcast();
   await wait(200);
   for (let i = 0; i < 3; i++) {
-    await pageOf(cur).click(`#hand .card:has(.cname:text-is("Bartkatze")) >> nth=${i}`);
+    await pageOf(cur).click('#hand .card:has(.cname:text-is("Bartkatze"))');
+    await wait(120);
   }
   assert.match(await pageOf(cur).textContent('#hand-title'), /Drei gleiche Katzen/);
   await playSelected(pageOf(cur));
@@ -217,7 +247,8 @@ async function main() {
   game.hooks.broadcast();
   await wait(200);
   for (const name of ['Pizzakatze', 'Melonenkatze', 'Bartkatze', 'Regenbogenkatze', 'Kartoffelkatze']) {
-    await pageOf(cur).click(`#hand .card:has(.cname:text-is("${name}")) >> nth=0`);
+    await pageOf(cur).click(`#hand .card:has(.cname:text-is("${name}"))`);
+    await wait(100);
   }
   assert.match(await pageOf(cur).textContent('#hand-title'), /Fünf verschiedene Katzen/);
   await playSelected(pageOf(cur));
