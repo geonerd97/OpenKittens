@@ -4,6 +4,16 @@ Alle nennenswerten Änderungen an OpenKittens. Das Format orientiert sich an
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), die Versionierung an
 [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Hinzugefügt
+
+- **Computergegner** in drei Spielstärken (leicht, normal, schlau). Der Host legt
+  sie in der Lobby an und stellt jede Stufe einzeln ein; ein Mensch plus ein Bot
+  genügt für eine Partie. Bots entscheiden nur mit öffentlich sichtbaren
+  Informationen und ihrer eigenen Hand, pausieren ohne Zuschauer und überstehen
+  einen Neustart des Servers.
+
 ## [1.0.0] – 2026-11-01
 
 Erste vollständige Fassung: lauffähig per `docker compose up -d --build`,

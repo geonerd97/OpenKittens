@@ -302,6 +302,52 @@ async function main() {
   assert.ok(await hostPage.isVisible('#screen-lobby.active'), 'Host kommt zurück in die Lobby');
   step('Neue Runde über die Lobby');
 
+  /* ------------------------------------------------------- Solo gegen Bot */
+  const solo = await newPage('Solo');
+  await solo.fill('#input-name', 'Allein');
+  await solo.click('#btn-create');
+  await solo.waitForSelector('#screen-lobby.active');
+  const soloCode = (await solo.textContent('#lobby-code')).trim();
+  assert.equal(await solo.isDisabled('#btn-start'), true, 'allein lässt sich nicht starten');
+  await solo.click('#btn-add-bot');
+  await wait(300);
+  assert.equal((await solo.$$('#lobby-players li')).length, 2, 'Bot sitzt am Tisch');
+  await solo.click('#lobby-players li:last-child .bot-levels .opt:last-child'); // schlau
+  await wait(250);
+  const soloGame = rooms.get(soloCode);
+  const botPlayer = soloGame.players.find((p) => p.bot);
+  assert.equal(botPlayer.level, 'smart', 'Spielstärke umgestellt');
+  assert.equal(await solo.isDisabled('#btn-start'), false, 'mit Bot kann gestartet werden');
+  step('Bot in der Lobby hinzufügen und einstellen');
+
+  await solo.click('#btn-start');
+  await solo.waitForSelector('#screen-game.active');
+  await wait(400);
+  await shot(solo, 'solo.png');
+
+  // Mensch zieht einfach immer; der Bot muss von allein spielen
+  let botMoves = 0;
+  for (let i = 0; i < 60 && botMoves < 3; i++) {
+    if (await solo.isVisible('#modal')) {
+      const confirm = solo.locator('#modal-foot .btn.primary');
+      if (await confirm.count()) await confirm.click();
+      else await solo.locator('#modal-body .card').first().click();
+      await wait(200);
+      continue;
+    }
+    if (await solo.isVisible('#nope-bar') && await solo.isEnabled('#btn-pass')) {
+      await solo.click('#btn-pass');
+    } else if (await solo.isEnabled('#btn-draw')) {
+      await solo.click('#btn-draw');
+    }
+    await wait(500);
+    botMoves = (await solo.$$eval('#log li', (nodes) => nodes.map((n) => n.textContent)))
+      .filter((line) => line.startsWith(botPlayer.name)).length;
+    if (soloGame.phase !== 'playing') break;
+  }
+  assert.ok(botMoves >= 3, `der Bot spielt von allein (${botMoves} Aktionen im Verlauf)`);
+  step('Solo-Partie: der Bot zieht und spielt selbstständig');
+
   assert.deepEqual(errors, [], `Konsolenfehler: ${errors.join(' | ')}`);
   step('Keine Konsolenfehler');
 

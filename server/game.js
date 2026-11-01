@@ -1,6 +1,7 @@
 'use strict';
 
 const { CARDS, buildPool, defuseCount } = require('./cards');
+const bots = require('./bot');
 
 const PROMPT_TIMEOUT_MS = 30000;
 const OFFLINE_AUTOPLAY_MS = 20000;
@@ -75,10 +76,11 @@ class Game {
     this.winnerId = null;
     this.lastPlay = null;
     this.round = 0;
+    this.bombsInPlay = 0;
     this.turnDeadline = null;
     this.createdAt = Date.now();
     this.updatedAt = Date.now();
-    this._timers = { nope: null, prompt: null, auto: null };
+    this._timers = { nope: null, prompt: null, auto: null, bot: null };
   }
 
   /* ------------------------------------------------------------------ Spieler */
@@ -95,8 +97,19 @@ class Game {
     return this.players.filter((p) => p.alive && !p.spectator);
   }
 
+  /** Verbundene Menschen – Bots halten einen Raum nicht am Leben. */
   get connectedCount() {
-    return this.players.filter((p) => p.connected).length;
+    return this.players.filter((p) => p.connected && !p.bot).length;
+  }
+
+  get humans() {
+    return this.players.filter((p) => !p.bot);
+  }
+
+  _reassignHost() {
+    if (this.hostId && this.findById(this.hostId) && !this.findById(this.hostId).bot) return;
+    const next = this.players.find((p) => !p.bot && p.connected) || this.players.find((p) => !p.bot);
+    this.hostId = next ? next.id : null;
   }
 
   _freeAvatar() {
@@ -134,6 +147,7 @@ class Game {
     player.socketId = socketId;
     player.connected = true;
     this._touch();
+    this._scheduleAuto();
   }
 
   detach(socketId) {
@@ -147,13 +161,49 @@ class Game {
     } else {
       this._log(`${player.name} ist offline – Züge werden automatisch gespielt.`);
     }
-    if (this.hostId === player.id) {
-      const next = this.players.find((p) => p.connected) || this.players[0];
-      this.hostId = next ? next.id : null;
-    }
+    if (this.hostId === player.id) this._reassignHost();
     this._touch();
     this._scheduleAuto();
     return player;
+  }
+
+  /* ----------------------------------------------------------------- Bots */
+
+  addBot(hostId, level = 'normal') {
+    if (hostId !== this.hostId) throw new GameError('Nur der Host kann Bots hinzufügen.');
+    if (this.phase === 'playing') throw new GameError('Bots lassen sich nur zwischen den Runden hinzufügen.');
+    if (this.players.length >= MAX_PLAYERS) throw new GameError(`Mehr als ${MAX_PLAYERS} Spieler gehen nicht.`);
+    const lvl = bots.LEVELS.includes(level) ? level : 'normal';
+    const bot = {
+      id: nextUid(),
+      token: `bot:${nextUid()}`,
+      name: bots.freeName(this),
+      avatar: this._freeAvatar(),
+      socketId: null,
+      connected: true,
+      bot: true,
+      level: lvl,
+      hand: [],
+      alive: true,
+      spectator: false,
+      turnsLeft: 0
+    };
+    this.players.push(bot);
+    this._log(`${bot.name} (Bot, ${bots.LEVEL_NAMES[lvl]}) spielt mit.`);
+    this._afterChange();
+    return bot;
+  }
+
+  setBotLevel(hostId, botId, level) {
+    if (hostId !== this.hostId) throw new GameError('Nur der Host kann Bots einstellen.');
+    if (this.phase === 'playing') throw new GameError('Während einer Runde lässt sich das nicht ändern.');
+    const bot = this.findById(botId);
+    if (!bot || !bot.bot) throw new GameError('Das ist kein Bot.');
+    if (!bots.LEVELS.includes(level)) throw new GameError('Unbekannte Spielstärke.');
+    bot.level = level;
+    this._log(`${bot.name} spielt jetzt ${bots.LEVEL_NAMES[level]}.`);
+    this._afterChange();
+    return bot;
   }
 
   /**
@@ -172,7 +222,7 @@ class Game {
       this._afterChange();
       return target;
     }
-    if (target.connected) throw new GameError('Im laufenden Spiel lassen sich nur offline Spieler entfernen.');
+    if (target.connected && !target.bot) throw new GameError('Im laufenden Spiel lassen sich nur offline Spieler entfernen.');
     if (!target.alive) throw new GameError('Dieser Spieler ist bereits draußen.');
 
     const wasCurrent = this.currentPlayer && this.currentPlayer.id === target.id;
@@ -215,11 +265,12 @@ class Game {
     if (playerId !== this.hostId) throw new GameError('Nur der Host kann das Spiel starten.');
     if (this.phase === 'playing') throw new GameError('Das Spiel läuft bereits.');
     const participants = this.players.filter((p) => p.connected);
-    if (participants.length < MIN_PLAYERS) throw new GameError('Mindestens zwei Spieler werden benötigt.');
+    if (!participants.some((p) => !p.bot)) throw new GameError('Mindestens ein menschlicher Spieler wird benötigt.');
+    if (participants.length < MIN_PLAYERS) throw new GameError('Mindestens zwei Mitspieler werden benötigt – Bots zählen mit.');
 
     this._clearTimers();
     this.players = participants;
-    if (!this.players.some((p) => p.id === this.hostId)) this.hostId = this.players[0].id;
+    this._reassignHost();
 
     const count = this.players.length;
     const { startCards, extraBombs } = this.settings;
@@ -240,6 +291,7 @@ class Game {
     const extraDefuses = Math.max(0, defuseCount(count) - count);
     for (let i = 0; i < extraDefuses; i++) rest.push('defuse');
     const bombs = Math.max(1, count - 1 + extraBombs);
+    this.bombsInPlay = bombs;
     for (let i = 0; i < bombs; i++) rest.push('bomb');
 
     this.deck = shuffle(rest).map((id) => ({ uid: nextUid(), id }));
@@ -272,7 +324,7 @@ class Game {
       p.removed = false;
       p.turnsLeft = 0;
     });
-    if (!this.players.some((p) => p.id === this.hostId) && this.players.length) this.hostId = this.players[0].id;
+    this._reassignHost();
     this.deck = [];
     this.discard = [];
     this.pending = null;
@@ -759,18 +811,40 @@ class Game {
 
   _scheduleAuto() {
     clearTimeout(this._timers.auto);
+    clearTimeout(this._timers.bot);
     this._timers.auto = null;
+    this._timers.bot = null;
     if (this.phase !== 'playing') return;
+
+    // Ohne Zuschauer spielen die Bots nicht weiter
+    const humansWatching = this.players.some((p) => !p.bot && p.connected);
 
     if (this.prompt) {
       const owner = this.findById(this.prompt.playerId);
-      if (owner && !owner.connected) this._timers.auto = setTimeout(() => this._autoPrompt(), 2000);
+      if (owner && owner.bot && humansWatching) {
+        this._timers.bot = setTimeout(() => this._botPrompt(owner.id), bots.thinkingTime(owner.level, 'prompt'));
+      } else if (owner && !owner.connected) {
+        this._timers.auto = setTimeout(() => this._autoPrompt(), 2000);
+      }
       return;
     }
-    if (this.pending) return;
+    if (this.pending) {
+      const bot = this._nopeCandidates().find((p) => p.bot);
+      if (bot && humansWatching) {
+        this._timers.bot = setTimeout(() => this._botNope(bot.id), bots.thinkingTime(bot.level, 'nope'));
+      }
+      return;
+    }
 
     const player = this.currentPlayer;
     if (!player || !player.alive) return;
+
+    if (player.bot) {
+      if (humansWatching) {
+        this._timers.bot = setTimeout(() => this._botTurn(player.id), bots.thinkingTime(player.level, 'turn'));
+      }
+      return;
+    }
 
     let delay = null;
     let reason = '';
@@ -789,6 +863,53 @@ class Game {
       this._log(`${cur.name} ${reason} – es wird automatisch gezogen.`);
       this._drawFor(cur);
     }, delay);
+  }
+
+  /* ------------------------------------------------------------- Bot-Züge */
+
+  _botTurn(botId) {
+    const bot = this.findById(botId);
+    if (this.phase !== 'playing' || this.pending || this.prompt) return;
+    if (!bot || !bot.bot || !bot.alive || this.currentPlayer.id !== botId) return;
+    let decision;
+    try {
+      decision = bots.decideTurn(this, bot);
+    } catch (err) {
+      decision = { type: 'draw' };
+    }
+    try {
+      if (decision && decision.type === 'play') this.playCards(botId, decision.uids, decision.opts || {});
+      else this.draw(botId);
+    } catch (err) {
+      // Lieber ziehen als die Runde blockieren
+      try { this.draw(botId); } catch { /* Zug ist bereits vorbei */ }
+    }
+  }
+
+  _botNope(botId) {
+    const bot = this.findById(botId);
+    if (!this.pending || !bot || !bot.bot) return;
+    if (!this._nopeCandidates().some((p) => p.id === botId)) return;
+    let wantsNope = false;
+    try {
+      wantsNope = bots.decideNope(this, bot, this.pending);
+    } catch { wantsNope = false; }
+    try {
+      if (wantsNope) this.playNope(botId);
+      else this.passNope(botId);
+    } catch { /* Fenster ist schon zu */ }
+  }
+
+  _botPrompt(botId) {
+    const bot = this.findById(botId);
+    if (!this.prompt || !bot || !bot.bot || this.prompt.playerId !== botId) return;
+    try {
+      if (this.prompt.type === 'defuse') {
+        this.respondPrompt(botId, { position: bots.decideDefusePosition(this, bot) });
+      } else if (this.prompt.type === 'favor') {
+        this.respondPrompt(botId, { uid: bots.decideFavorCard(this, bot) });
+      }
+    } catch { /* Entscheidung ist schon gefallen */ }
   }
 
   _clearTimers() {
@@ -842,6 +963,8 @@ class Game {
       youId: playerId,
       settings: { ...this.settings },
       settingRanges: SETTING_RANGES,
+      botLevels: bots.LEVELS,
+      botLevelNames: bots.LEVEL_NAMES,
       currentId: this.phase === 'playing' && current ? current.id : null,
       turnDeadline: this.turnDeadline,
       deckCount: this.deck.length,
@@ -861,6 +984,8 @@ class Game {
         spectator: p.spectator,
         removed: Boolean(p.removed),
         connected: p.connected,
+        bot: Boolean(p.bot),
+        level: p.bot ? p.level : null,
         isHost: p.id === this.hostId,
         turnsLeft: p.turnsLeft,
         hasNope: this.phase === 'playing' && p.hand.some((c) => c.id === 'nope') && p.id === playerId
@@ -916,6 +1041,7 @@ class Game {
       round: this.round,
       hostId: this.hostId,
       settings: this.settings,
+      bombsInPlay: this.bombsInPlay,
       deck: this.deck,
       discard: this.discard,
       currentIndex: this.currentIndex,
@@ -927,6 +1053,7 @@ class Game {
       updatedAt: this.updatedAt,
       players: this.players.map((p) => ({
         id: p.id, token: p.token, name: p.name, avatar: p.avatar, hand: p.hand,
+        bot: Boolean(p.bot), level: p.level || null,
         alive: p.alive, spectator: p.spectator, removed: Boolean(p.removed), turnsLeft: p.turnsLeft
       }))
     };
@@ -943,6 +1070,7 @@ class Game {
     game.round = data.round || 0;
     game.hostId = data.hostId || null;
     game.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+    game.bombsInPlay = data.bombsInPlay || 0;
     game.deck = Array.isArray(data.deck) ? data.deck : [];
     game.discard = Array.isArray(data.discard) ? data.discard : [];
     game.currentIndex = data.currentIndex || 0;
@@ -958,7 +1086,9 @@ class Game {
       name: p.name,
       avatar: typeof p.avatar === 'number' ? p.avatar : 0,
       socketId: null,
-      connected: false,
+      connected: Boolean(p.bot),
+      bot: Boolean(p.bot),
+      level: p.level || null,
       hand: Array.isArray(p.hand) ? p.hand : [],
       alive: Boolean(p.alive),
       spectator: Boolean(p.spectator),
@@ -971,4 +1101,7 @@ class Game {
   }
 }
 
-module.exports = { Game, GameError, MIN_PLAYERS, MAX_PLAYERS, DEFAULT_SETTINGS, SETTING_RANGES, AVATARS };
+module.exports = {
+  Game, GameError, MIN_PLAYERS, MAX_PLAYERS,
+  DEFAULT_SETTINGS, SETTING_RANGES, AVATARS, BOT_LEVELS: bots.LEVELS
+};

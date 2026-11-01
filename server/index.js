@@ -216,6 +216,16 @@ io.on('connection', (socket) => {
     game.updateSettings(player.id, patch);
   }));
 
+  socket.on('addBot', handler(socket, ({ level }) => {
+    const { game, player } = context();
+    game.addBot(player.id, level);
+  }));
+
+  socket.on('setBotLevel', handler(socket, ({ playerId, level }) => {
+    const { game, player } = context();
+    game.setBotLevel(player.id, playerId, level);
+  }));
+
   socket.on('kickPlayer', handler(socket, ({ playerId }) => {
     const { game, player } = context();
     const removed = game.kickPlayer(player.id, playerId);

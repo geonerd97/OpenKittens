@@ -154,7 +154,7 @@
     av.className = 'avatar';
     av.style.width = av.style.height = `${size}px`;
     av.style.borderColor = player.color;
-    av.textContent = player.connected ? player.emoji : '💤';
+    av.textContent = player.bot ? '🤖' : (player.connected ? player.emoji : '💤');
     return av;
   }
 
@@ -369,32 +369,55 @@
     $('lobby-count').textContent = String(v.players.length);
 
     const list = $('lobby-players');
+    const isHostNow = Boolean(v.you && v.you.isHost);
     list.innerHTML = '';
     v.players.forEach((p) => {
       const li = document.createElement('li');
       li.style.borderColor = p.id === v.youId ? p.color : '';
+
+      const main = document.createElement('div');
+      main.className = 'player-main';
       const name = document.createElement('span');
       name.className = 'pname-text';
       name.textContent = p.name + (p.id === v.youId ? ' (du)' : '');
-      li.append(avatarEl(p), name);
-      if (p.isHost) {
+      main.append(avatarEl(p), name);
+
+      const tags = [];
+      if (p.isHost) tags.push('Host');
+      if (p.bot) tags.push(`Bot · ${v.botLevelNames[p.level] || p.level}`);
+      else if (!p.connected) tags.push('offline');
+      tags.forEach((text, i) => {
         const tag = document.createElement('span');
         tag.className = 'tag';
-        tag.textContent = 'Host';
-        li.appendChild(tag);
-      }
-      if (!p.connected) {
-        const tag = document.createElement('span');
-        tag.className = 'tag';
-        tag.textContent = 'offline';
-        li.appendChild(tag);
-      }
-      if (v.you && v.you.isHost && p.id !== v.youId) {
+        tag.textContent = text;
+        if (i === 0) tag.style.marginLeft = 'auto';
+        main.appendChild(tag);
+      });
+
+      if (isHostNow && p.id !== v.youId) {
         const kick = button('✕', 'tiny ghost', () => emit('kickPlayer', { playerId: p.id }));
         kick.setAttribute('aria-label', `${p.name} entfernen`);
         kick.title = `${p.name} entfernen`;
-        kick.style.marginLeft = p.isHost || !p.connected ? '.3rem' : 'auto';
-        li.appendChild(kick);
+        if (!tags.length) kick.style.marginLeft = 'auto';
+        main.appendChild(kick);
+      }
+      li.appendChild(main);
+
+      if (p.bot && isHostNow) {
+        const levels = document.createElement('div');
+        levels.className = 'bot-levels';
+        levels.setAttribute('role', 'group');
+        levels.setAttribute('aria-label', `Spielstärke von ${p.name}`);
+        (v.botLevels || []).forEach((level) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'opt';
+          btn.textContent = v.botLevelNames[level] || level;
+          btn.setAttribute('aria-pressed', p.level === level ? 'true' : 'false');
+          btn.addEventListener('click', () => emit('setBotLevel', { playerId: p.id, level }));
+          levels.appendChild(btn);
+        });
+        li.appendChild(levels);
       }
       list.appendChild(li);
     });
@@ -402,12 +425,18 @@
     renderSettings(v);
 
     const isHost = Boolean(v.you && v.you.isHost);
-    const enough = v.players.filter((p) => p.connected).length >= 2;
+    const participants = v.players.filter((p) => p.connected).length;
+    const enough = participants >= 2;
+    const full = v.players.length >= 8;
+    $('bot-add').classList.toggle('hidden', !isHost);
+    $('btn-add-bot').disabled = full;
     $('btn-start').disabled = !isHost || !enough;
     $('lobby-hint').textContent = !isHost
       ? 'Warte, bis der Host das Spiel startet.'
-      : (enough ? '' : 'Es fehlt noch mindestens ein Mitspieler.');
+      : (enough ? '' : 'Es fehlt noch ein Mitspieler – ein Bot zählt auch.');
   }
+
+  $('btn-add-bot').addEventListener('click', () => emit('addBot', { level: 'normal' }));
 
   $('btn-copy-link').addEventListener('click', async () => {
     const ok = await copyText(joinUrl(view ? view.code : ''));
@@ -479,7 +508,7 @@
     const current = v.players.find((p) => p.id === v.currentId);
     $('chip-turn').textContent = v.phase === 'finished'
       ? (v.winnerName ? `🏆 ${v.winnerName}` : 'Runde beendet')
-      : (current ? `${current.emoji} ${current.name}${current.turnsLeft > 1 ? ` · ${current.turnsLeft} Züge` : ''}` : '–');
+      : (current ? `${current.bot ? '🤖' : current.emoji} ${current.name}${current.turnsLeft > 1 ? ` · ${current.turnsLeft} Züge` : ''}` : '–');
     $('chip-turn').classList.toggle('alarm', Boolean(v.you && v.you.isCurrent));
 
     const strip = $('players-strip');
@@ -496,6 +525,7 @@
       const meta = document.createElement('span');
       meta.className = 'pmeta';
       const parts = [`🎴 ${p.handCount}`];
+      if (p.bot) parts.push(`Bot · ${(view && view.botLevelNames && view.botLevelNames[p.level]) || p.level}`);
       if (p.isHost) parts.push('Host');
       if (p.spectator) parts.push('Zuschauer');
       else if (p.removed) parts.push('entfernt');

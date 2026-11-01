@@ -6,6 +6,7 @@
  */
 const assert = require('node:assert/strict');
 const { Game } = require('../server/game');
+const botBrain = require('../server/bot');
 
 let passed = 0;
 const tests = [];
@@ -481,6 +482,178 @@ test('Spieler bekommen unterschiedliche Farben und Symbole', () => {
   assert.equal(colors.size, 4, 'vier verschiedene Farben');
   assert.equal(view.players.every((p) => Boolean(p.emoji)), true);
   game.dispose();
+});
+
+/* --------------------------------------------------------- Computergegner */
+
+test('Host fügt Bots hinzu und stellt die Spielstärke ein', () => {
+  const game = makeGame(['Mensch', 'Zweiter']);
+  const notHost = game.players.find((p) => p.id !== game.hostId);
+  assert.throws(() => game.addBot(notHost.id), /Host/);
+  const bot = game.addBot(game.hostId, 'smart');
+  assert.equal(bot.bot, true);
+  assert.equal(bot.level, 'smart');
+  assert.equal(bot.connected, true, 'Bots zählen als anwesend');
+  assert.equal(game.players.length, 3);
+  game.setBotLevel(game.hostId, bot.id, 'easy');
+  assert.equal(bot.level, 'easy');
+  assert.throws(() => game.setBotLevel(game.hostId, bot.id, 'genial'), /Spielstärke/);
+  assert.throws(() => game.setBotLevel(game.hostId, game.hostId, 'easy'), /kein Bot/);
+  game.dispose();
+});
+
+test('Ein Mensch plus ein Bot reicht zum Start, Bots allein nicht', () => {
+  const game = makeGame(['Mensch']);
+  assert.throws(() => game.start(game.hostId), /Mitspieler/);
+  game.addBot(game.hostId, 'normal');
+  game.start(game.hostId);
+  assert.equal(game.phase, 'playing');
+  assert.equal(game.players.length, 2);
+  assert.equal(game.deck.filter((c) => c.id === 'bomb').length, 1);
+  game.players.forEach((p) => assert.equal(p.hand.length, 8));
+  game.dispose();
+
+  const onlyBots = new Game('9999', { broadcast: () => {}, toPlayer: () => {} });
+  const human = onlyBots.addPlayer({ name: 'Mensch', token: 't', socketId: 's' });
+  onlyBots.addBot(human.id, 'easy');
+  onlyBots.addBot(human.id, 'easy');
+  onlyBots.detach('s');
+  assert.throws(() => onlyBots.start(onlyBots.hostId), /Host|menschlicher/);
+  onlyBots.dispose();
+});
+
+test('Der Host bleibt immer ein Mensch', () => {
+  const game = makeGame(['Mensch', 'Gast']);
+  const guest = game.players.find((p) => p.id !== game.hostId);
+  game.addBot(game.hostId, 'normal');
+  const host = game.findById(game.hostId);
+  game.detach(host.socketId);
+  const newHost = game.findById(game.hostId);
+  assert.ok(newHost, 'es gibt weiterhin einen Host');
+  assert.equal(Boolean(newHost.bot), false, 'kein Bot als Host');
+  assert.equal(newHost.id, guest.id);
+  game.dispose();
+});
+
+test('Bots halten einen Raum nicht künstlich am Leben', () => {
+  const game = makeGame(['Mensch']);
+  game.addBot(game.hostId, 'normal');
+  assert.equal(game.connectedCount, 1, 'nur Menschen zählen');
+  game.detach(game.players[0].socketId);
+  assert.equal(game.connectedCount, 0);
+  game.dispose();
+});
+
+test('Bots pausieren, wenn kein Mensch zuschaut', () => {
+  const game = makeGame(['Mensch']);
+  game.addBot(game.hostId, 'normal');
+  game.start(game.hostId);
+  game.detach(game.players.find((p) => !p.bot).socketId);
+  game._scheduleAuto();
+  assert.equal(game._timers.bot, null, 'kein Bot-Timer ohne Publikum');
+  game.dispose();
+});
+
+test('Bot-Entscheidungen sind regelkonform', () => {
+  for (let round = 0; round < 12; round++) {
+    const game = makeGame(['Mensch']);
+    ['easy', 'normal', 'smart'].forEach((level) => game.addBot(game.hostId, level));
+    game.start(game.hostId);
+    let steps = 0;
+    while (game.phase === 'playing' && steps++ < 2000) {
+      if (game.prompt) {
+        const owner = game.findById(game.prompt.playerId);
+        if (owner.bot) game._botPrompt(owner.id);
+        else if (game.prompt.type === 'defuse') game.respondPrompt(owner.id, { position: 0 });
+        else game.respondPrompt(owner.id, { uid: owner.hand[0] && owner.hand[0].uid });
+        continue;
+      }
+      if (game.pending) {
+        const bot = game._nopeCandidates().find((p) => p.bot);
+        if (bot) game._botNope(bot.id);
+        else resolve(game);
+        continue;
+      }
+      const cur = game.currentPlayer;
+      if (cur.bot) {
+        // Entscheidung ohne Sicherheitsnetz anwenden: ein illegaler Zug wirft hier
+        const decision = botBrain.decideTurn(game, cur);
+        if (decision.type === 'play') game.playCards(cur.id, decision.uids, decision.opts || {});
+        else game.draw(cur.id);
+      } else {
+        game.draw(cur.id);
+      }
+    }
+    assert.equal(game.phase, 'finished', `Runde ${round} läuft zu Ende (Schritte: ${steps})`);
+    assert.equal(game.alivePlayers.length, 1);
+    game.dispose();
+  }
+});
+
+test('Bots nutzen ihr Wissen: Nope, Gefallen und Bombenverstecken', () => {
+  const game = makeGame(['Mensch']);
+  game.addBot(game.hostId, 'smart');
+  game.start(game.hostId);
+  const bot = game.players.find((p) => p.bot);
+  const human = game.players.find((p) => !p.bot);
+
+  // Gefallen: billigste Karte abgeben, Entschärfung behalten
+  bot.hand = [{ uid: 'd', id: 'defuse' }, { uid: 'k', id: 'cat_pizza' }, { uid: 'a', id: 'attack' }];
+  assert.equal(botBrain.decideFavorCard(game, bot), 'k', 'die Katze geht raus');
+  bot.hand = [{ uid: 'd', id: 'defuse' }];
+  assert.equal(botBrain.decideFavorCard(game, bot), 'd', 'nur noch die Entschärfung da');
+
+  // Bombe verstecken: ohne weiteren Zug nach oben, mit weiterem Zug nach hinten
+  bot.turnsLeft = 1;
+  assert.equal(botBrain.decideDefusePosition(game, bot), 0, 'direkt vor die Nase des Nächsten');
+  bot.turnsLeft = 2;
+  assert.equal(botBrain.decideDefusePosition(game, bot), game.deck.length, 'bei eigenem Folgezug ganz nach hinten');
+
+  // Nope: Aktionen gegen den Bot werden meistens gekontert
+  const pendingAgainstBot = { action: { type: 'favor', targetId: bot.id }, byId: human.id, nopeLayers: 0 };
+  const pendingElsewhere = { action: { type: 'shuffle' }, byId: human.id, nopeLayers: 0 };
+  let against = 0;
+  let elsewhere = 0;
+  for (let i = 0; i < 400; i++) {
+    if (botBrain.decideNope(game, bot, pendingAgainstBot)) against++;
+    if (botBrain.decideNope(game, bot, pendingElsewhere)) elsewhere++;
+  }
+  assert.ok(against > 280, `gegen sich gerichtete Aktionen werden gekontert (${against}/400)`);
+  assert.ok(elsewhere < 100, `harmlose Aktionen bleiben meist stehen (${elsewhere}/400)`);
+  assert.equal(botBrain.decideNope(game, bot, { action: { type: 'skip' }, byId: bot.id, nopeLayers: 0 }), false,
+    'sich selbst nopet der Bot nicht');
+  game.dispose();
+});
+
+test('Der schlaue Bot zieht bei sicherem Stapel, statt Karten zu verschwenden', () => {
+  const game = makeGame(['Mensch']);
+  game.addBot(game.hostId, 'smart');
+  game.start(game.hostId);
+  const bot = game.players.find((p) => p.bot);
+  game.currentIndex = game.players.indexOf(bot);
+  bot.turnsLeft = 1;
+  bot.hand = [{ uid: 's', id: 'skip' }, { uid: 'a', id: 'attack' }];
+  game.peeks[bot.id] = ['shuffle', 'skip', 'favor'];
+  assert.equal(botBrain.decideTurn(game, bot).type, 'draw', 'oben liegt nichts Gefährliches');
+  game.peeks[bot.id] = ['bomb', 'skip', 'favor'];
+  const risky = botBrain.decideTurn(game, bot);
+  assert.equal(risky.type, 'play', 'bei bekannter Bombe wird reagiert');
+  game.dispose();
+});
+
+test('Bots überleben eine Momentaufnahme', () => {
+  const game = makeGame(['Mensch']);
+  game.addBot(game.hostId, 'smart');
+  game.start(game.hostId);
+  const snapshot = JSON.parse(JSON.stringify(game.toJSON()));
+  game.dispose();
+  const restored = Game.fromJSON(snapshot, { broadcast: () => {}, toPlayer: () => {} });
+  const bot = restored.players.find((p) => p.bot);
+  assert.ok(bot, 'Bot ist wieder da');
+  assert.equal(bot.level, 'smart');
+  assert.equal(bot.connected, true, 'Bots sind nach dem Neustart sofort wieder spielbereit');
+  assert.equal(restored.bombsInPlay, 1);
+  restored.dispose();
 });
 
 runAll().then(() => {

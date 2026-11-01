@@ -179,6 +179,25 @@ kommen die restlichen Entschärfungen und die Bomben in den Stapel.
 
 ---
 
+## Allein gegen Computergegner
+
+In der Lobby legt der Host mit **🤖 Bot hinzufügen** beliebig viele Bots an (bis
+insgesamt 8 Spieler). Ein Mensch und ein Bot reichen zum Starten – ganz allein geht
+es nicht, Bots spielen nur, solange jemand zuschaut.
+
+| Stufe | Verhalten |
+| --- | --- |
+| leicht | zieht meistens einfach, spielt Karten eher zufällig, nopet selten |
+| normal | weicht Bomben mit Überspringen und Angriff aus, klaut mit Katzenpaaren, nopet Aktionen, die gegen ihn gehen |
+| schlau | nutzt den Blick in die Zukunft, zieht bei sicherem Stapel statt Karten zu verschwenden, fordert gezielt Entschärfungen, versteckt die entschärfte Bombe direkt vor dem nächsten Spieler und kontert Angriffe auf sich |
+
+Die Stufe lässt sich je Bot einzeln umstellen, auch zwischen zwei Runden. Bots
+entscheiden nur mit dem, was auch ein Mensch am Tisch wüsste: eigene Hand, Stapel-
+und Ablagegröße, Kartenzahl der anderen und der eigene Zukunftsblick – sie schauen
+nie in den Nachziehstapel oder in fremde Hände.
+
+---
+
 ## Hausregeln (Lobby, nur Host)
 
 | Einstellung | Auswahl | Bedeutung |
@@ -244,6 +263,7 @@ Mit `UI_SHOTS=1 npm run test:ui` landen Screenshots in `screenshots/`.
 
 ```
 server/cards.js   Kartendefinitionen und Deckzusammenstellung
+server/bot.js     Entscheidungen der Computergegner (drei Spielstärken)
 server/game.js    Spiellogik: Züge, Nope-Fenster, Kombis, Timer, Sichtbarkeiten
 server/index.js   Express + Socket.IO, Raumverwaltung, Persistenz, Aufräum-Job
 public/           Oberfläche (HTML/CSS/JS ohne Build-Schritt)
